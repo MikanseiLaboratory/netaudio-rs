@@ -1,0 +1,19 @@
+[package]
+name = "netaudio"
+version = "0.0.0"
+edition = "2021"
+description = "Unofficial Dante-compatible AoIP library (receive-first, cross-platform)"
+license = "MIT"
+publish = false
+authors = ["未完成成果物研究所 / Mikansei Laboratory"]
+keywords = ["aoip", "audio", "dante", "network"]
+categories = ["multimedia::audio", "network-programming"]
+repository = "https://github.com/MikanseiLaboratory/netaudio-rs"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt"] }
+
+[features]
+default = []
+# Planned: play/capture via existing OS audio devices. Not a virtual device.
+cpal = []
