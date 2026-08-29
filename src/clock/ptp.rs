@@ -18,15 +18,8 @@ struct PendingSync {
 
 pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
     let ip = shared.identity.ip;
-    let event = match udp::bind_ptp(ip, ports::PTP_EVENT) {
-        Ok(s) => s,
-        Err(e) if matches!(e, Error::PtpBindDenied { .. }) => return Err(e),
-        Err(e) => return Err(e),
-    };
-    let general = match udp::bind_ptp(ip, ports::PTP_GENERAL) {
-        Ok(s) => s,
-        Err(e) => return Err(e),
-    };
+    let event = udp::bind_ptp(ip, ports::PTP_EVENT)?;
+    let general = udp::bind_ptp(ip, ports::PTP_GENERAL)?;
     event
         .set_read_timeout(Some(Duration::from_millis(200)))
         .ok();

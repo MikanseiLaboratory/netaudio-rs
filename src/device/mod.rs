@@ -261,8 +261,7 @@ impl Device {
             Ok(Ok(())) => {}
             Ok(Err(e)) => return Err(e),
             Err(_) => {
-                return Err(Error::Io(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(Error::Io(std::io::Error::other(
                     "control plane task ended before bind",
                 )));
             }
