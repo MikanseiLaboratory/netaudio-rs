@@ -92,7 +92,7 @@ pub(crate) struct Shared {
     pub info_tx: tokio::sync::mpsc::UnboundedSender<info_mcast::InfoEvent>,
 }
 
-/// Running receive device. `Send + Sync`, not `Clone`.
+/// Running receive device. `Send + Sync`. One instance per [`Device::start`].
 pub struct Device {
     shared: Arc<Shared>,
     shutdown_tx: watch::Sender<bool>,

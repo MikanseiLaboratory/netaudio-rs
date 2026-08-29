@@ -1,4 +1,4 @@
-//! Left-justified integer PCM (not Q31 multiply).
+//! Left-justified integer PCM. Unused LSBs are zero.
 
 use crate::Sample;
 

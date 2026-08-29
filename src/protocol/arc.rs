@@ -208,7 +208,7 @@ pub struct SubscribeReq {
     pub tx_host: Option<String>,
 }
 
-/// Parse 0x3010. Honor `count` (byte 1), not `space`.
+/// Parse 0x3010. The record count is content byte 1 (`count`).
 pub fn parse_subscribe(packet: &[u8], content: &[u8]) -> Vec<SubscribeReq> {
     if content.len() < 2 {
         return Vec::new();

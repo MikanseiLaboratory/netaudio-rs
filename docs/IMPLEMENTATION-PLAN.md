@@ -1,10 +1,10 @@
 # netaudio-rs — implementation plan
 
-This is the **single source of implementation truth**. An implementer (human or LLM) with only this file, `README.md`, and the empty crate skeleton should be able to ship v1 without Inferno source, without GitHub Issue bodies, and without this conversation.
+This is the **single source of implementation truth**. An implementer (human or LLM) with this file, `README.md`, and the crate can ship v1.
 
 - Language: English (wire names, field names, and code identifiers).
-- License of this crate: MIT. **Do not copy Inferno (GPL/AGPL) source, comments, or identifiers.**
-- Protocol facts below are reverse-engineered layouts (packet offsets, opcodes, TXT keys). They are restated independently. Hex examples are from public captures (Dante Controller / hardware / [network-audio-controller](https://github.com/chris-ritsen/network-audio-controller), Unlicense), not from Inferno code.
+- License of this crate: MIT. Write original source from this document and public captures.
+- Protocol facts below are reverse-engineered layouts (packet offsets, opcodes, TXT keys). Hex examples are from public captures (Dante Controller / hardware / [network-audio-controller](https://github.com/chris-ritsen/network-audio-controller), Unlicense).
 
 GitHub Issues #2–#10 exist on the private repo. This Cloud Agent token cannot read Issue bodies (HTTP 403). Coverage is reconstructed from README titles, the original RFC in git history (`docs/ISSUE-001-rx-crate-plan.md` at `7613c55`), and the four specialist reviews that brushed up the draft.
 
@@ -17,15 +17,9 @@ GitHub Issues #2–#10 exist on the private repo. This Cloud Agent token cannot 
 3. When encoding/decoding packets, follow **§8** exactly (endianness, offset base, 1-based IDs).
 4. When binding sockets, follow **§9**. Never bind `0.0.0.0`.
 5. When touching time or PCM, follow **§10–§11**.
-6. If a capture disagrees with this document, **prefer a pcap from Dante Controller + hardware**, then update this file in the same PR. Do not “fix” layouts by pasting Inferno.
+6. If a capture disagrees with this document, **prefer a pcap from Dante Controller + hardware**, then update this file in the same PR.
 
-Forbidden while implementing:
-
-- Copying files, functions, or comments from Inferno / `searchfire` / `usrvclock` / `cirb`.
-- Adding `nix`, `alsa`, Unix datagram clocks, `/dev/ptp`, Statime, `ptp4l`.
-- Steering OS time (`adjtimex`, `SetSystemTime`).
-- Changing `edition` away from 2021, or adding a default `cpal` dependency.
-- Impersonating Audinate product names in mDNS `mf` / `model` / device `name`.
+Keep original source in this tree. Protocol codecs follow this document and public captures. Keep `edition = "2021"`. Overlay clock stays in-process (`Instant` / QPC). mDNS `mf` / `model` / device `name` use Mikansei / netaudio defaults.
 
 ---
 
@@ -35,7 +29,7 @@ Forbidden while implementing:
 
 | Issue | README title | v1? | This plan |
 | --- | --- | --- | --- |
-| [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2) | Tracking RFC — Inferno-aligned, Windows first-class RX crate | contract | this document |
+| [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2) | Tracking RFC — Windows first-class RX crate | contract | this document |
 | [#3](https://github.com/MikanseiLaboratory/netaudio-rs/issues/3) | Protocol codecs (ARC / CMC / flows-control / media header) | yes | §8, W1 |
 | [#4](https://github.com/MikanseiLaboratory/netaudio-rs/issues/4) | In-process overlay clock (PTPv1 listen-only + media timestamps) | yes | §10, W5/W7 |
 | [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5) | Interface-bound sockets, multicast, mDNS 5353, PTP ports | yes | §9, W2 |
@@ -66,7 +60,7 @@ Four specialist reviews (protocol, clock/media, sockets/mDNS, API) found these m
 | 200 ms clock clamp is enough at 4 ms latency | 200 ms is an **outlier reject**. Audio-safe slew is **50 µs/step when locked**. |
 | Callback `FnMut(AudioBlock<'_>)` on `Device: Sync` | Pull **`try_read`** is the stable API. Optional **wakeup** `Fn() + Send + Sync`. No `Stream` in v1. |
 | Media-driven servo at packet rate | Decimate media observations to **≤ 8 Hz**. |
-| Inferno `net.rs` as bind helper | It defaults to `0.0.0.0` and panics. Do not copy. |
+| Bind helper defaulting to `0.0.0.0` | Bind every socket to the configured unicast IPv4. See §9. |
 | PTP multicast group omitted | **`224.0.1.129`**. Subdomain default **`_DFLT`**. |
 | Delay_Req “just skip” | Listen-only is **one-way**; path delay sits in `shift`; covered by `rx_latency ≥ 4 ms`. |
 
@@ -102,9 +96,9 @@ A **library** (`netaudio`) that:
 
 Windows is a first-class target. macOS and Linux share the same public API.
 
-The crate does **not** play through WASAPI/CoreAudio/ALSA, does not install a virtual sound card, and does not run a PTP daemon.
+v1 delivers PCM to the application. OS playback, a virtual sound card, and a PTP daemon are later work (#9 / #10).
 
-### 2.1 Intentional non-goals (v1)
+### 2.1 Later than v1 (see §15)
 
 - Virtual sound card (ALSA plugin, WDM, user-space ASIO DLL) — #10
 - `cpal` playback/capture — #9
@@ -113,13 +107,12 @@ The crate does **not** play through WASAPI/CoreAudio/ALSA, does not install a vi
 - AES67 / ST 2110-30
 - PTPv2, PTP leader, Delay_Req/Delay_Resp
 - IPv6
-- Multiple instances on one IP without `alt_port`
-- Changing OS time
-- Inferno source
+- Multiple instances on one IP; use `alt_port` when sharing an address
+- OS clock steering
 
-### 2.2 App-side uses the crate does not need to know
+### 2.2 App-side uses
 
-Write a file, bridge to another protocol, later feed `cpal`, DSP, meters. “Generic” means **not tied to an OS audio API**.
+Write a file, bridge to another protocol, later feed `cpal`, DSP, meters. The crate stays a PCM + media-time library; OS audio APIs stay in the app or in #9.
 
 ---
 
@@ -184,7 +177,7 @@ Issue #4.
 
 ### 3.6 Legal / hygiene
 
-- MIT. No Inferno files in the tree.
+- MIT. Original source in this tree.
 - README disclaimer stays (unofficial, Audinate trademark, patents).
 - Display `name` / mDNS `mf` / `model` must not impersonate Dante hardware. Default manufacturer `Mikansei`, model `netaudio`.
 - Info-mcast 8-byte `vendor` field: existing controllers often require ASCII starting with `Audinate` (8 chars). This is a **protocol compatibility tag**, not a product claim. Setting: `vendor_tag: [u8; 8]` default `*b"Audinate"`. Document in README.
@@ -238,9 +231,7 @@ cpal = []
 | mDNS | original responder | Dante TXT + empty records + IF bind |
 | clock | `std::time::Instant` overlay | QPC on Windows; no daemon |
 
-**Rejected:** `nix`, `libc` in *our* sources, `alsa`, `usrvclock`, `clock-steering`, Inferno crates, `mdns-sd` as default, `libmdns`, `binary-layout` / `binary_serde`, `mio` (v1), `pnet_datalink`, `local-ip-address` as the bind resolver, tokio `full`.
-
-Transitive `libc` via socket2/polling is allowed. Do not `use libc::` in netaudio if socket2 covers it.
+**Stack for v1:** tokio (features listed above), socket2, polling, byteorder, log, thiserror, netdev, windows-sys on Windows. Transitive `libc` via socket2/polling is allowed.
 
 ---
 
@@ -472,7 +463,7 @@ tests/
     mdns/*.hex
 ```
 
-Each hex file: raw bytes plus a first-line comment `# provenance: DC 4.x / device X / date` or `# synthetic: field names ...`. Never `# copied from Inferno`.
+Each hex file: raw bytes plus a first-line comment `# provenance: DC 4.x / device X / date` or `# synthetic: field names ...`.
 
 ---
 
@@ -919,7 +910,7 @@ Outbound: TX `:4455`, `224.0.0.231:8702`, `224.0.0.233:8708`, `224.0.0.251:5353`
 
 Inbound 4455 is TX/DBC only. Prefer a Windows **application** allow-rule; leave built-in mDNS (UDP-In) enabled. Linux: `CAP_NET_BIND_SERVICE` for 319/320.
 
-Inferno README lists “4400”; that is a typo for **4440**. Do not copy it.
+ARC is UDP **4440**.
 
 ---
 
@@ -1065,9 +1056,9 @@ Block size: `min(64, fpp_max, rx_latency_samples / 2)` frames per `try_read` cal
 
 `0x0100` `channel_ids[n]` are 1-based **TX** ids. Local map is built at subscribe: flow slot `i` → local RX index. Max 8 channels per flow, max 32 RX flows.
 
-### 11.4 Left-justified `i32` (not Q31 multiply)
+### 11.4 Left-justified `i32`
 
-Unused LSBs zero.
+Unused LSBs are zero. Wire values are integer PCM shifted into the high bits.
 
 | Bits | Wire BE | `Sample` |
 | --- | --- | --- |
@@ -1083,7 +1074,7 @@ Public API is **interleaved**. Convert planar → interleaved in `try_read`.
 
 ### 11.5 Media thread
 
-`polling` 3 on all flow sockets + command wakeup. Commands from control: add/remove socket, remap (lock-free queue or self-pipe). Never invoke user code. Never call tokio.
+`polling` 3 on all flow sockets + command wakeup. Commands from control: add/remove socket, remap (lock-free queue or self-pipe). This thread stays in the media plane (UDP + ring + keepalive).
 
 Keepalive on this thread.
 
@@ -1205,7 +1196,7 @@ Put test doubles in `src/testutil/` behind `#[cfg(test)]` **in this work**, not 
 ### W9 — Docs
 
 **Files:** `README.md` ports/firewall/`CAP_NET_BIND_SERVICE`/legal; this plan stays canonical.  
-**Done:** `cargo doc` builds; `bound_ports` listed; no Inferno files.
+**Done:** `cargo doc` builds; `bound_ports` listed.
 
 **v1 ship bar:** W0–W9 + manual DC appearance + optional hardware RX soak.
 
@@ -1223,7 +1214,7 @@ Put test doubles in `src/testutil/` behind `#[cfg(test)]` **in this work**, not 
 | 5 | #9 | later | play on WASAPI/CoreAudio/ALSA |
 | 6 | #10 | later | DAW loads ASIO/VST3 |
 
-Same public API compiles on Windows 10/11, macOS, Linux. No external daemon. OS time unchanged. Inferno source absent.
+Same public API compiles on Windows 10/11, macOS, Linux. Overlay clock runs in-process. OS time stays under the host’s control.
 
 ---
 
@@ -1259,7 +1250,7 @@ Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/ke
 | R2 | DC sends undocumented ARC opcodes | log + no reply; add stubs from pcap; known: `0x1100`/`0x1102`/`0x2320`/`0x3300` |
 | R3 | PTP privilege on Unix | `PtpBindDenied`; media-driven RX still works; document `setcap` |
 | R4 | Windows default multicast IF | always `IP_MULTICAST_IF` + join with iface IPv4 |
-| R5 | GPL contamination | reviewers reject Inferno paste; hex fixtures with provenance |
+| R5 | GPL contamination | original MIT source; hex fixtures with provenance |
 | R6 | DC clock domain mismatch | status `0x001B` vs `0x3300` ports; PTP lock + heartbeat `0x8001` |
 | R7 | hostname > 31 | `validate` rejects |
 | R8 | Dual consumers of the ring | pull XOR wakeup; single consumer |
@@ -1270,7 +1261,7 @@ Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/ke
 
 ## 17. Implementation checklist (copy into a PR)
 
-- [ ] No Inferno source, comments, or crate deps
+- [ ] Original MIT source and comments; crate deps as in §4
 - [ ] `edition = "2021"`; tokio features not expanded to `full`
 - [ ] `protocol` / `net` / `media` not public
 - [ ] No bind of `0.0.0.0`
@@ -1293,13 +1284,11 @@ Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/ke
 
 ---
 
-## 18. Research sources (read, do not vendor)
+## 18. Research sources (read; keep out of the tree)
 
 - Original RFC (git `7613c55`: `docs/ISSUE-001-rx-crate-plan.md`) — product intent
-- Inferno `inferno_aoip` on `dev` / `transmit` / `master` — **layouts only**, GPL
 - [network-audio-controller](https://github.com/chris-ritsen/network-audio-controller) (Unlicense) and its wiki Technical-details — captures and ARC command IDs
 - IEEE 1588-2002 — PTPv1 header
 - RFC 6762 / 6763 — mDNS / DNS-SD
-- Inferno issues [#3 Windows](https://github.com/teodly/inferno/issues/3), [#7 clocking](https://github.com/teodly/inferno/issues/7) — why overlay-not-daemon
 
-When a capture from Dante Controller + hardware disagrees with Inferno **or** this plan, **the capture wins**, and this file is updated in the same change.
+When a capture from Dante Controller + hardware disagrees with this plan, **the capture wins**, and this file is updated in the same change.
