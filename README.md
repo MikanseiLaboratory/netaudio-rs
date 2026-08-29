@@ -10,7 +10,7 @@ This project is unofficial and independent of Audinate. Dante is a trademark of 
 
 ## Status
 
-Private R&D. The plan is in GitHub Issues.
+Private R&D. The product plan is in GitHub Issues. The implementable spec (tech selection, protocol layouts, public API, work order) is [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md).
 
 | GitHub | Topic |
 | --- | --- |
