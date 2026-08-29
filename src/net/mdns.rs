@@ -96,13 +96,13 @@ fn run(shared: Arc<Shared>, sock: std::net::UdpSocket, stop: Arc<std::sync::atom
         }
         match sock.recv_from(&mut buf) {
             Ok((n, src)) => {
-                if let Some(msg) = mdns_proto::Message::decode(&buf[..n]) {
-                    if should_answer(&msg, &shared.identity.friendly_hostname) {
-                        let pkt = announce();
-                        let _ = sock.send_to(&pkt, dest);
-                        if src.port() != ports::MDNS {
-                            let _ = sock.send_to(&pkt, src);
-                        }
+                if let Some(msg) = mdns_proto::Message::decode(&buf[..n])
+                    && should_answer(&msg, &shared.identity.friendly_hostname)
+                {
+                    let pkt = announce();
+                    let _ = sock.send_to(&pkt, dest);
+                    if src.port() != ports::MDNS {
+                        let _ = sock.send_to(&pkt, src);
                     }
                 }
             }

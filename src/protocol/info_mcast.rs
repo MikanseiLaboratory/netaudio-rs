@@ -1,7 +1,7 @@
 //! Info multicast 32-byte header and payloads.
 
-use super::buf::{write_ascii_padded, BeWriter};
 use super::HEADER_MCAST;
+use super::buf::{BeWriter, write_ascii_padded};
 use std::net::Ipv4Addr;
 
 pub const START_INFO: u16 = 0xFFFF;

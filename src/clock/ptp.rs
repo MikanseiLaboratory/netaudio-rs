@@ -65,12 +65,12 @@ fn handle_event(
         return;
     }
     let t2 = overlay.local_ns();
-    if let Some(ts) = ptp_v1::origin_timestamp(pkt) {
-        if !ts.is_zero() {
-            overlay.observe(ts.as_ns(), t2, Source::Ptp);
-            *pending = None;
-            return;
-        }
+    if let Some(ts) = ptp_v1::origin_timestamp(pkt)
+        && !ts.is_zero()
+    {
+        overlay.observe(ts.as_ns(), t2, Source::Ptp);
+        *pending = None;
+        return;
     }
     *pending = Some(PendingSync {
         uuid: h.source_uuid,

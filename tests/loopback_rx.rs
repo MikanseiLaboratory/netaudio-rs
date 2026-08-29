@@ -4,8 +4,8 @@ mod common;
 
 use netaudio::{AudioFrameMut, Device, Sample};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 use tokio::time::{sleep, timeout};
@@ -131,13 +131,11 @@ async fn fake_tx_loop(fc: UdpSocket, stop: Arc<AtomicBool>, keepalives: Arc<Atom
                     } else {
                         0
                     };
-                    if sock_off + 8 > n
-                        || buf.get(sock_off..sock_off + 2) != Some(&[0x08, 0x02][..])
-                    {
-                        if let Some(i) = buf.windows(2).position(|w| w == [0x08, 0x02]) {
+                    if (sock_off + 8 > n
+                        || buf.get(sock_off..sock_off + 2) != Some(&[0x08, 0x02][..]))
+                        && let Some(i) = buf.windows(2).position(|w| w == [0x08, 0x02]) {
                             sock_off = i;
                         }
-                    }
                     if sock_off + 8 <= n && buf.get(sock_off..sock_off + 2) == Some(&[0x08, 0x02][..])
                     {
                         let port = u16::from_be_bytes(buf[sock_off + 2..sock_off + 4].try_into().unwrap());
@@ -157,15 +155,14 @@ async fn fake_tx_loop(fc: UdpSocket, stop: Arc<AtomicBool>, keepalives: Arc<Atom
                 }
             }
             rec = media.recv_from(&mut kbuf) => {
-                if let Ok((n, _)) = rec {
-                    if n == 2 && kbuf[0] == 0x13 && kbuf[1] == 0x37 {
+                if let Ok((n, _)) = rec
+                    && n == 2 && kbuf[0] == 0x13 && kbuf[1] == 0x37 {
                         keepalives.fetch_add(1, Ordering::Relaxed);
                     }
-                }
             }
             _ = tick.tick() => {
-                if sending {
-                    if let Some(d) = dest {
+                if sending
+                    && let Some(d) = dest {
                         let elapsed = origin.elapsed();
                         let idx = (elapsed.as_secs_f64() * 48_000.0) as u64;
                         let frames = 16u64;
@@ -177,7 +174,6 @@ async fn fake_tx_loop(fc: UdpSocket, stop: Arc<AtomicBool>, keepalives: Arc<Atom
                         let pkt = encode_media_16(sec, i, &samples);
                         let _ = media.send_to(&pkt, d).await;
                     }
-                }
             }
         }
     }

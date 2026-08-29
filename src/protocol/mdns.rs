@@ -416,10 +416,10 @@ pub fn build_probe(hostname: &str) -> Message {
 pub fn txt_get<'a>(strs: &'a [Vec<u8>], key: &str) -> Option<&'a str> {
     let prefix = format!("{key}=");
     for s in strs {
-        if let Ok(t) = std::str::from_utf8(s) {
-            if let Some(v) = t.strip_prefix(&prefix) {
-                return Some(v);
-            }
+        if let Ok(t) = std::str::from_utf8(s)
+            && let Some(v) = t.strip_prefix(&prefix)
+        {
+            return Some(v);
         }
     }
     None

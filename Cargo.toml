@@ -1,8 +1,8 @@
 [package]
 name = "netaudio"
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.85"
+edition = "2024"
+rust-version = "1.98"
 description = "Unofficial Dante-compatible AoIP library (receive-first, Windows / macOS / Linux)"
 license = "MIT"
 publish = false
@@ -25,7 +25,7 @@ windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32
 
 [dev-dependencies]
 hex = "0.4"
-clap = { version = "=4.5.32", features = ["derive"] }
+clap = { version = "4.6", features = ["derive"] }
 env_logger = "0.11"
 netdev = "0.32"
 tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread", "signal"] }

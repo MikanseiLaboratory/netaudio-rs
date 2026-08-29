@@ -8,8 +8,8 @@ use crate::protocol::pcm;
 use crate::protocol::ports;
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::sync::Arc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -142,12 +142,12 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                             flow.saw_packet = true;
                             crate::device::subscribe::mark_flow_receiving(&shared, flow.id);
                         }
-                        if let Ok(guard) = shared.wakeup.lock() {
-                            if let Some(cb) = guard.as_ref() {
-                                let cb = Arc::clone(cb);
-                                drop(guard);
-                                cb();
-                            }
+                        if let Ok(guard) = shared.wakeup.lock()
+                            && let Some(cb) = guard.as_ref()
+                        {
+                            let cb = Arc::clone(cb);
+                            drop(guard);
+                            cb();
                         }
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,

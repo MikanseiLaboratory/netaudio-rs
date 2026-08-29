@@ -4,11 +4,11 @@ use super::{Error, Shared};
 use crate::protocol::info_mcast as im;
 use crate::protocol::ports;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tokio::net::UdpSocket;
 use tokio::sync::watch;
-use tokio::time::{interval, Duration};
+use tokio::time::{Duration, interval};
 
 pub enum InfoEvent {
     ChannelChange(Vec<usize>),

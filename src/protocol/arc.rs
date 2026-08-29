@@ -1,6 +1,6 @@
 //! ARC (UDP 4440) codecs.
 
-use super::buf::{cstr_at, BeWriter};
+use super::buf::{BeWriter, cstr_at};
 use super::req_resp::{self, Header};
 use super::{HEADER_RR, OPCODE2_FAIL, OPCODE2_MORE, OPCODE2_OK, OPCODE2_UNSUPPORTED};
 
@@ -187,7 +187,7 @@ pub fn encode_rx_channels(
         item.u32(0);
         let bytes = item.into_inner();
         c.as_slice(); // keep writer
-                      // patch item into reserved slots via a temp copy
+        // patch item into reserved slots via a temp copy
         let mut raw = c.into_inner();
         raw[item_at..item_at + ITEM].copy_from_slice(&bytes);
         c = BeWriter::new();
@@ -275,11 +275,7 @@ pub fn parse_unsub_one(content: &[u8]) -> Option<u16> {
         return None;
     }
     let id = u16::from_be_bytes([content[4], content[5]]);
-    if id == 0 {
-        None
-    } else {
-        Some(id)
-    }
+    if id == 0 { None } else { Some(id) }
 }
 
 #[derive(Clone, Debug)]
@@ -314,7 +310,7 @@ pub fn encode_rx_flows(req: Header, start: usize, flows: &[RxFlowView]) -> Vec<u
             have_more = true;
             break;
         }
-        while c.len() % 4 != 0 {
+        while !c.len().is_multiple_of(4) {
             c.u8(0);
         }
         let desc_off = (HEADER_RR + c.len()) as u16;
@@ -334,7 +330,7 @@ pub fn encode_rx_flows(req: Header, start: usize, flows: &[RxFlowView]) -> Vec<u
         }
         let foot_slot = c.len();
         c.u16(0); // descriptor2 offset
-        while c.len() % 4 != 0 {
+        while !c.len().is_multiple_of(4) {
             c.u8(0);
         }
         let sock_off = (HEADER_RR + c.len()) as u16;

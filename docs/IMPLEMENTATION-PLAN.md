@@ -19,7 +19,7 @@ GitHub Issues #2–#10 exist on the private repo. This Cloud Agent token cannot 
 5. When touching time or PCM, follow **§10–§11**.
 6. If a capture disagrees with this document, **prefer a pcap from Dante Controller + hardware**, then update this file in the same PR.
 
-Keep original source in this tree. Protocol codecs follow this document and public captures. Keep `edition = "2021"`. Overlay clock stays in-process (`Instant` / QPC). mDNS `mf` / `model` / device `name` use Mikansei / netaudio defaults.
+Keep original source in this tree. Protocol codecs follow this document and public captures. Keep `edition = "2024"`. Overlay clock stays in-process (`Instant` / QPC). mDNS `mf` / `model` / device `name` use Mikansei / netaudio defaults.
 
 ---
 
@@ -186,14 +186,14 @@ Issue #4.
 
 ## 4. Tech stack (v1)
 
-Do not bump edition. Do not enable `cpal` by default.
+Do not enable `cpal` by default.
 
 ```toml
 [package]
 name = "netaudio"
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.85"
+edition = "2024"
+rust-version = "1.98"
 license = "MIT"
 publish = false
 
@@ -1262,7 +1262,7 @@ Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/ke
 ## 17. Implementation checklist (copy into a PR)
 
 - [ ] Original MIT source and comments; crate deps as in §4
-- [ ] `edition = "2021"`; tokio features not expanded to `full`
+- [ ] `edition = "2024"`; tokio features not expanded to `full`
 - [ ] `protocol` / `net` / `media` not public
 - [ ] No bind of `0.0.0.0`
 - [ ] Latency floor 4 ms enforced

@@ -110,12 +110,12 @@ impl Settings {
             ));
         }
         validate_name(&self.name)?;
-        if let Some(names) = &self.rx_channel_names {
-            if names.len() != self.rx_channels as usize {
-                return Err(Error::settings(
-                    "rx_channel_names length must match rx_channels",
-                ));
-            }
+        if let Some(names) = &self.rx_channel_names
+            && names.len() != self.rx_channels as usize
+        {
+            return Err(Error::settings(
+                "rx_channel_names length must match rx_channels",
+            ));
         }
         match self.bind {
             Bind::Ip(ip) if ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() => {

@@ -8,7 +8,7 @@ use std::os::windows::io::{AsRawSocket, RawSocket};
 
 pub fn set_exclusive_addr_use(sock: &Socket) -> Result<(), Error> {
     use windows_sys::Win32::Networking::WinSock::{
-        setsockopt, SOCKET, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+        SO_EXCLUSIVEADDRUSE, SOCKET, SOL_SOCKET, setsockopt,
     };
     let raw: RawSocket = sock.as_raw_socket();
     let enable: i32 = 1;
@@ -29,7 +29,7 @@ pub fn set_exclusive_addr_use(sock: &Socket) -> Result<(), Error> {
 
 pub fn disable_udp_connreset(sock: &std::net::UdpSocket) -> Result<(), Error> {
     use std::os::windows::io::AsRawSocket;
-    use windows_sys::Win32::Networking::WinSock::{WSAIoctl, SOCKET, SOCKET_ERROR};
+    use windows_sys::Win32::Networking::WinSock::{SOCKET, SOCKET_ERROR, WSAIoctl};
     const SIO_UDP_CONNRESET: u32 = 0x9800_000C;
     let raw = sock.as_raw_socket();
     let mut enable: u32 = 0;
