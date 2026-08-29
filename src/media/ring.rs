@@ -39,10 +39,10 @@ impl Ring {
     }
 
     pub fn set_patched(&self, ch: usize, patched: bool) {
-        if let Ok(mut g) = self.inner.lock() {
-            if ch < g.patched.len() {
-                g.patched[ch] = patched;
-            }
+        if let Ok(mut g) = self.inner.lock()
+            && ch < g.patched.len()
+        {
+            g.patched[ch] = patched;
         }
     }
 
@@ -55,10 +55,10 @@ impl Ring {
     }
 
     pub fn note_port(&self, port: u16) {
-        if let Ok(mut g) = self.inner.lock() {
-            if !g.media_ports.contains(&port) {
-                g.media_ports.push(port);
-            }
+        if let Ok(mut g) = self.inner.lock()
+            && !g.media_ports.contains(&port)
+        {
+            g.media_ports.push(port);
         }
     }
 

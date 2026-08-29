@@ -19,7 +19,7 @@ GitHub Issues #2–#10 exist on the private repo. This Cloud Agent token cannot 
 5. When touching time or PCM, follow **§10–§11**.
 6. If a capture disagrees with this document, **prefer a pcap from Dante Controller + hardware**, then update this file in the same PR.
 
-Keep original source in this tree. Protocol codecs follow this document and public captures. Keep `edition = "2021"`. Overlay clock stays in-process (`Instant` / QPC). mDNS `mf` / `model` / device `name` use Mikansei / netaudio defaults.
+Keep original source in this tree. Protocol codecs follow this document and public captures. Keep `edition = "2024"`. Overlay clock stays in-process (`Instant` / QPC). mDNS `mf` / `model` / device `name` use Mikansei / netaudio defaults.
 
 ---
 
@@ -82,7 +82,7 @@ Four specialist reviews (protocol, clock/media, sockets/mDNS, API) found these m
 | Media RX port | Bind in advertised range `0x3800..=0x397F`. If busy, try next port in range; last resort ephemeral (still report actual port in `0x3200`). |
 | PTP I/O | Dedicated **clock thread** (recv 319/320, timestamp `t2` immediately). Not tokio. Overlay published via seqlock. |
 | `thiserror` | 2.x |
-| `socket2` | 0.5 with feature `all` (Unix `SO_REUSEPORT`). |
+| `socket2` | 0.6 with feature `all` (Unix `SO_REUSEPORT`). |
 
 ---
 
@@ -186,32 +186,33 @@ Issue #4.
 
 ## 4. Tech stack (v1)
 
-Do not bump edition. Do not enable `cpal` by default.
+Do not enable `cpal` by default.
 
 ```toml
 [package]
 name = "netaudio"
 version = "0.0.0"
-edition = "2021"
-rust-version = "1.74"
+edition = "2024"
+rust-version = "1.98"
 license = "MIT"
 publish = false
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
-log = "0.4"
-thiserror = "2"
-socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1.53", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
+log = "0.4.34"
+thiserror = "2.0"
+socket2 = { version = "0.6", features = ["all"] }
 byteorder = "1.5"
-polling = "3"
-netdev = "0.32"
+polling = "3.11"
+netdev = "0.46"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_Threading"] }
 
 [dev-dependencies]
 hex = "0.4"
-tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread"] }
+clap = { version = "4.6", features = ["derive"] }
+tokio = { version = "1.53", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread"] }
 
 [features]
 default = []
@@ -221,12 +222,12 @@ cpal = []
 | Slot | Choice | Why |
 | --- | --- | --- |
 | async control | tokio 1 (already in crate) | timeouts, cancel, UDP |
-| sockets | socket2 0.5 `all` | IF bind, reuse, multicast, Windows |
+| sockets | socket2 0.6 `all` | IF bind, reuse, multicast, Windows |
 | media poll | polling 3 | epoll/kqueue/IOCP, no mio |
 | bytes | byteorder + internal `BeBuf` | explicit layouts, fixture-friendly |
 | log | log 0.4 | app picks backend |
 | errors | thiserror 2 | typed public errors |
-| NIC | netdev 0.32 | Win friendly name, MAC, mask, gateway |
+| NIC | netdev 0.46 | Win friendly name, MAC, mask, gateway |
 | WinSock extras | windows-sys | `SO_EXCLUSIVEADDRUSE`, `SIO_UDP_CONNRESET`, thread priority |
 | mDNS | original responder | Dante TXT + empty records + IF bind |
 | clock | `std::time::Instant` overlay | QPC on Windows; no daemon |
@@ -1262,7 +1263,7 @@ Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/ke
 ## 17. Implementation checklist (copy into a PR)
 
 - [ ] Original MIT source and comments; crate deps as in §4
-- [ ] `edition = "2021"`; tokio features not expanded to `full`
+- [ ] `edition = "2024"`; tokio features not expanded to `full`
 - [ ] `protocol` / `net` / `media` not public
 - [ ] No bind of `0.0.0.0`
 - [ ] Latency floor 4 ms enforced

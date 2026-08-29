@@ -1,8 +1,8 @@
 //! Flows-control client packets (UDP 4455).
 
+use super::HEADER_RR;
 use super::buf::BeWriter;
 use super::req_resp;
-use super::HEADER_RR;
 
 pub const START_CODE: u16 = 0x1102;
 pub const OP_REQUEST: u16 = 0x0100;
@@ -15,6 +15,7 @@ pub const ERR_RATE: u16 = 0x0301;
 
 pub type FlowHandle = [u8; 6];
 
+#[allow(clippy::too_many_arguments)]
 pub fn encode_request_flow(
     seqnum: u16,
     sample_rate: u32,
@@ -53,7 +54,7 @@ pub fn encode_request_flow(
     body.cstr(rx_hostname);
     let flow_name_off = HEADER_RR + body.len();
     body.cstr(rx_flow_name);
-    while (HEADER_RR + body.len()) % 8 != 0 {
+    while !(HEADER_RR + body.len()).is_multiple_of(8) {
         body.u8(0);
     }
     let sock_off = HEADER_RR + body.len();

@@ -91,10 +91,10 @@ fn from_netdev(iface: &netdev::Interface, ipv4: Ipv4Addr, netmask: Ipv4Addr) -> 
         mac.copy_from_slice(&oct[..6.min(oct.len())]);
     }
     let mut gateway = Ipv4Addr::UNSPECIFIED;
-    if let Some(gws) = &iface.gateway {
-        if let Some(g) = gws.ipv4.first() {
-            gateway = *g;
-        }
+    if let Some(gws) = &iface.gateway
+        && let Some(g) = gws.ipv4.first()
+    {
+        gateway = *g;
     }
     let speed = [
         iface.transmit_speed.unwrap_or(0),

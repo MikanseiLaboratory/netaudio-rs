@@ -2,10 +2,10 @@
 
 use super::subscribe;
 use super::{Error, Shared};
+use crate::protocol::HEADER_RR;
 use crate::protocol::arc::{self, RxChannel, RxFlowView};
 use crate::protocol::buf::cstr_at;
 use crate::protocol::req_resp::{self, Header};
-use crate::protocol::HEADER_RR;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
@@ -50,14 +50,13 @@ fn handle(shared: &Arc<Shared>, packet: &[u8]) -> Option<Vec<u8>> {
             &shared.identity.friendly_hostname,
         )),
         arc::OP_SET_NAME => {
-            if let Some(n) = cstr_at(packet, HEADER_RR as u16) {
-                if n.len() <= 31
-                    && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
-                    && !n.is_empty()
-                {
-                    // Friendly hostname is identity snapshot; names list is the live view.
-                    log::info!("arc set name ignored after start ({n}); v1 identity is fixed");
-                }
+            if let Some(n) = cstr_at(packet, HEADER_RR as u16)
+                && n.len() <= 31
+                && n.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+                && !n.is_empty()
+            {
+                // Friendly hostname is identity snapshot; names list is the live view.
+                log::info!("arc set name ignored after start ({n}); v1 identity is fixed");
             }
             Some(req_resp::encode_ok(hdr, &[]))
         }

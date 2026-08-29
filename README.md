@@ -54,6 +54,19 @@ let frames = dev.try_read(&mut frame)?;
 
 `Device::start` は、呼び出し側の tokio ランタイム上で動きます。`try_read` は未パッチまたは未到来のとき `0` を返し、呼び出し側バッファの内容はそのままです。
 
+## 受信 CLI（example）
+
+Windows / macOS / Linux 共通です。clap で引数を取り、Dante 機器として起動して PCM ピークを表示します。
+
+```text
+cargo run --example rx -- ifaces
+cargo run --example rx -- listen --bind 192.168.1.10 --name studio-rx --rx-channels 2
+```
+
+`--bind` には IPv4 かインタフェース名（Windows では表示名）を渡します。`listen --help` でビット深度・サンプルレート・レイテンシ・`alt-port` を確認できます。Ctrl+C で停止します。
+
+ソースは [`examples/rx.rs`](examples/rx.rs) です。
+
 ## ポートとファイアウォール
 
 すべての UDP ソケットは、設定した **ユニキャスト IPv4** に bind します。そのインタフェースで次のポートを開けてください。

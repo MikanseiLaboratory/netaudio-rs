@@ -1,6 +1,6 @@
 //! Overlay clock over `std::time::Instant` with seqlock snapshot.
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
 pub type FineTime = u64;

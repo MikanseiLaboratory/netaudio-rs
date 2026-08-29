@@ -1,7 +1,7 @@
 //! Subscribe state machine: ARC 0x3010 → mDNS → flows-control 0x0100 → media.
 
-use super::info_mcast::InfoEvent;
 use super::Shared;
+use super::info_mcast::InfoEvent;
 use crate::media::rx::MediaCommand;
 use crate::net::udp;
 use crate::protocol::arc::{self, SubscribeReq};
@@ -10,8 +10,8 @@ use crate::protocol::mdns as mdns_proto;
 use crate::protocol::ports;
 use crate::protocol::req_resp;
 use std::net::{SocketAddr, SocketAddrV4};
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 #[derive(Clone, Debug, Default)]
@@ -122,18 +122,18 @@ fn stop_flow(shared: &Shared, flow_id: u16) {
     let _ = shared
         .media_tx
         .send(MediaCommand::RemoveFlow { id: flow_id });
-    if let Some(f) = info {
-        if let Some(h) = f.handle {
-            let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
-            let pkt = flows_control::encode_stop(seq, h);
-            let ip = shared.identity.ip;
-            let addr = SocketAddr::V4(f.tx_addr);
-            std::thread::spawn(move || {
-                if let Ok(sock) = udp::bind_querier(ip) {
-                    let _ = sock.send_to(&pkt, addr);
-                }
-            });
-        }
+    if let Some(f) = info
+        && let Some(h) = f.handle
+    {
+        let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
+        let pkt = flows_control::encode_stop(seq, h);
+        let ip = shared.identity.ip;
+        let addr = SocketAddr::V4(f.tx_addr);
+        std::thread::spawn(move || {
+            if let Ok(sock) = udp::bind_querier(ip) {
+                let _ = sock.send_to(&pkt, addr);
+            }
+        });
     }
 }
 
@@ -327,20 +327,20 @@ async fn resolve_tx(shared: &Shared, tx_host: &str, tx_ch: &str) -> Result<Resol
                     ipv4 = Some(*a);
                 }
                 mdns_proto::RecordData::Txt(strs) => {
-                    if let Some(v) = mdns_proto::txt_get(strs, "rate") {
-                        if let Ok(r) = v.parse() {
-                            sample_rate = r;
-                        }
+                    if let Some(v) = mdns_proto::txt_get(strs, "rate")
+                        && let Ok(r) = v.parse()
+                    {
+                        sample_rate = r;
                     }
                     if let Some(v) = mdns_proto::txt_get(strs, "fpp") {
                         let (mx, mn) = mdns_proto::parse_fpp(v);
                         fpp_max = mx;
                         fpp_min = mn;
                     }
-                    if let Some(v) = mdns_proto::txt_get(strs, "id") {
-                        if let Ok(n) = v.parse() {
-                            tx_channel_id = n;
-                        }
+                    if let Some(v) = mdns_proto::txt_get(strs, "id")
+                        && let Ok(n) = v.parse()
+                    {
+                        tx_channel_id = n;
                     }
                 }
                 _ => {}

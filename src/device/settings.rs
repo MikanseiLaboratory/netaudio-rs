@@ -110,12 +110,12 @@ impl Settings {
             ));
         }
         validate_name(&self.name)?;
-        if let Some(names) = &self.rx_channel_names {
-            if names.len() != self.rx_channels as usize {
-                return Err(Error::settings(
-                    "rx_channel_names length must match rx_channels",
-                ));
-            }
+        if let Some(names) = &self.rx_channel_names
+            && names.len() != self.rx_channels as usize
+        {
+            return Err(Error::settings(
+                "rx_channel_names length must match rx_channels",
+            ));
         }
         match self.bind {
             Bind::Ip(ip) if ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() => {
@@ -150,52 +150,69 @@ mod tests {
 
     #[test]
     fn rejects_latency_below_4ms() {
-        let mut s = Settings::default();
-        s.rx_latency = Duration::from_nanos(3_900_000);
+        let s = Settings {
+            rx_latency: Duration::from_nanos(3_900_000),
+            ..Default::default()
+        };
         assert!(matches!(s.validate(), Err(Error::InvalidSettings { .. })));
     }
 
     #[test]
     fn accepts_4ms() {
-        let mut s = Settings::default();
-        s.rx_latency = Duration::from_millis(4);
+        let s = Settings {
+            rx_latency: Duration::from_millis(4),
+            ..Default::default()
+        };
         s.validate().unwrap();
     }
 
     #[test]
     fn rejects_long_name() {
-        let mut s = Settings::default();
-        s.name = "a".repeat(32);
+        let s = Settings {
+            name: "a".repeat(32),
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
     }
 
     #[test]
     fn rejects_name_with_dot_or_space() {
-        let mut s = Settings::default();
-        s.name = "foo.bar".into();
+        let s = Settings {
+            name: "foo.bar".into(),
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
-        s.name = "foo bar".into();
+        let s = Settings {
+            name: "foo bar".into(),
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
     }
 
     #[test]
     fn rejects_bad_rate() {
-        let mut s = Settings::default();
-        s.sample_rate = 32_000;
+        let s = Settings {
+            sample_rate: 32_000,
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
     }
 
     #[test]
     fn rejects_tx_channels() {
-        let mut s = Settings::default();
-        s.tx_channels = 2;
+        let s = Settings {
+            tx_channels: 2,
+            ..Default::default()
+        };
         assert!(s.validate().is_err());
     }
 
     #[test]
     fn rejects_unspecified_bind() {
-        let mut s = Settings::default();
-        s.bind = Bind::Ip(Ipv4Addr::UNSPECIFIED);
+        let s = Settings {
+            bind: Bind::Ip(Ipv4Addr::UNSPECIFIED),
+            ..Default::default()
+        };
         assert!(matches!(s.validate(), Err(Error::UnspecifiedAddress)));
     }
 }

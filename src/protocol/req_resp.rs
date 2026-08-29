@@ -1,7 +1,7 @@
 //! 10-byte request/response header (ARC, CMC, flows-control).
 
-use super::buf::{BeSlice, BeWriter};
 use super::HEADER_RR;
+use super::buf::{BeSlice, BeWriter};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Header {

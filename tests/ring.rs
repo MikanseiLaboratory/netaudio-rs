@@ -2,6 +2,6 @@
 //! Unpatched `try_read` == 0 is asserted in `loopback_rx.rs`.
 
 #[test]
-fn placeholder_points_at_unit_tests() {
-    assert!(true);
+fn ring_coverage_is_in_src_media_ring() {
+    // crate-private `Ring` is exercised by unit tests next to the type.
 }
