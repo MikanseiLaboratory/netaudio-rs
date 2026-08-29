@@ -447,7 +447,7 @@ mod tests {
         let mut content = vec![2, 1, 0, 1, 0, 0, 0, 0];
         content.extend_from_slice(&[0u8; 6]);
         let pkt = req_resp::encode(0x2729, 1, OP_SUBSCRIBE, 0, &content);
-        let recs = parse_subscribe(&pkt, &req_resp::decode(&pkt).unwrap().1);
+        let recs = parse_subscribe(&pkt, req_resp::decode(&pkt).unwrap().1);
         assert_eq!(recs.len(), 1);
         assert_eq!(recs[0].local_id, 1);
         assert!(recs[0].tx_channel.is_none());

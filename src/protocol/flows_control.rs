@@ -15,6 +15,7 @@ pub const ERR_RATE: u16 = 0x0301;
 
 pub type FlowHandle = [u8; 6];
 
+#[allow(clippy::too_many_arguments)]
 pub fn encode_request_flow(
     seqnum: u16,
     sample_rate: u32,

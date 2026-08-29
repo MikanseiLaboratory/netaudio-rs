@@ -26,6 +26,8 @@ Dante は Audinate Pty Ltd の商標です。
 
 v1 は Phase 3 です。制御面、メディア RX、PTPv1 にロックする overlay 時計までを含みます。
 
+pull request と `main` への push では GitHub Actions が `cargo fmt`、`clippy -D warnings`、`cargo test`（Linux / Windows / macOS）、`cargo doc`、`cargo deny` を走らせます。example の `rx` もコンパイル対象です。`listen` は手元で動かします。
+
 ## v1
 
 | 項目 | v1 |

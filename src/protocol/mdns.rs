@@ -281,6 +281,7 @@ pub fn txt_kv(k: &str, v: &str) -> Vec<u8> {
     format!("{k}={v}").into_bytes()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_announcement(
     hostname: &str,
     ip: Ipv4Addr,

@@ -118,20 +118,22 @@ fn parse_bind(raw: &str) -> Bind {
 }
 
 fn settings_from_args(args: &ListenArgs) -> Settings {
-    let mut settings = Settings::default();
-    settings.name = args.name.clone();
-    settings.bind = parse_bind(&args.bind);
-    settings.rx_channels = args.rx_channels;
-    settings.sample_rate = args.sample_rate;
-    settings.bits = Bits::from(args.bits);
-    settings.rx_latency = Duration::from_millis(args.latency_ms);
-    settings.tx_latency = settings.rx_latency;
-    settings.alt_port = args.alt_port;
-    settings
+    let latency = Duration::from_millis(args.latency_ms);
+    Settings {
+        name: args.name.clone(),
+        bind: parse_bind(&args.bind),
+        rx_channels: args.rx_channels,
+        sample_rate: args.sample_rate,
+        bits: Bits::from(args.bits),
+        rx_latency: latency,
+        tx_latency: latency,
+        alt_port: args.alt_port,
+        ..Default::default()
+    }
 }
 
 fn print_ifaces() {
-    println!("{:<24} {:<24} {}", "NAME", "DISPLAY", "IPv4");
+    println!("{:<24} {:<24} IPv4", "NAME", "DISPLAY");
     for iface in netdev::get_interfaces() {
         let display = iface
             .friendly_name

@@ -17,6 +17,7 @@ use crate::net::iface::{self, IfaceInfo};
 use crate::net::mdns::MdnsAnnouncer;
 use crate::net::udp;
 use crate::protocol::ports as proto_ports;
+use std::fmt::Write as _;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
@@ -471,5 +472,9 @@ fn samples_to_ns(s: u64, rate: u32) -> u64 {
 }
 
 fn hex_id(id: &[u8; 8]) -> String {
-    id.iter().map(|b| format!("{b:02x}")).collect()
+    let mut s = String::with_capacity(16);
+    for b in id {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }

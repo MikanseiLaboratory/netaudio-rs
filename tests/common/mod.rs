@@ -18,14 +18,15 @@ pub fn rr_encode(start: u16, seq: u16, op1: u16, op2: u16, content: &[u8]) -> Ve
 }
 
 pub fn settings_loopback(name: &str, alt: u16) -> Settings {
-    let mut s = Settings::default();
-    s.name = name.into();
-    s.bind = Bind::Ip(Ipv4Addr::LOCALHOST);
-    s.rx_channels = 1;
-    s.bits = Bits::B16;
-    s.rx_latency = Duration::from_millis(10);
-    s.alt_port = Some(alt);
-    s
+    Settings {
+        name: name.into(),
+        bind: Bind::Ip(Ipv4Addr::LOCALHOST),
+        rx_channels: 1,
+        bits: Bits::B16,
+        rx_latency: Duration::from_millis(10),
+        alt_port: Some(alt),
+        ..Default::default()
+    }
 }
 
 pub async fn start_device(name: &str) -> Device {

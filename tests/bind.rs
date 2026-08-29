@@ -7,8 +7,10 @@ use std::net::Ipv4Addr;
 
 #[tokio::test]
 async fn unspecified_rejected_at_start() {
-    let mut s = Settings::default();
-    s.bind = Bind::Ip(Ipv4Addr::UNSPECIFIED);
+    let s = Settings {
+        bind: Bind::Ip(Ipv4Addr::UNSPECIFIED),
+        ..Default::default()
+    };
     let err = Device::start_for_test(s).await.unwrap_err();
     assert!(matches!(err, netaudio::Error::UnspecifiedAddress));
 }
@@ -27,10 +29,12 @@ async fn loopback_device_binds_unicast() {
 
 #[tokio::test]
 async fn loopback_interface_name() {
-    let mut s = Settings::default();
-    s.name = "loif".into();
-    s.bind = Bind::Interface("lo".into());
-    s.alt_port = Some(21_000);
+    let s = Settings {
+        name: "loif".into(),
+        bind: Bind::Interface("lo".into()),
+        alt_port: Some(21_000),
+        ..Default::default()
+    };
     // On some hosts "lo" has no IPv4 in netdev; localhost IP is the portable path.
     let _ = Device::start_for_test(s).await;
 }

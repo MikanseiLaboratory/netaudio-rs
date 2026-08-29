@@ -4,6 +4,7 @@ use super::udp;
 use crate::device::{Error, Shared};
 use crate::protocol::mdns as mdns_proto;
 use crate::protocol::ports;
+use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -130,7 +131,11 @@ fn should_answer(msg: &mdns_proto::Message, hostname: &str) -> bool {
 }
 
 fn hex_id(id: &[u8; 8]) -> String {
-    id.iter().map(|b| format!("{b:02x}")).collect()
+    let mut s = String::with_capacity(16);
+    for b in id {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 /// Legacy unicast mDNS query (high port → 5353).
