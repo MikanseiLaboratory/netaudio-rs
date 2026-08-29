@@ -1,13 +1,14 @@
 ---
 title: protocol 層 — ARC / CMC / flows-control / メディアヘッダの ser/de
 labels: enhancement
+github: 3
 ---
 
 # protocol 層 — ARC / CMC / flows-control / メディアヘッダの ser/de
 
-`netaudio::protocol` は **パケットの読み書きだけ** を持つ。ソケットもスレッドも時計も知らない。ユニットテストと pcap fixtures で閉じる。
+`netaudio::protocol` は **パケットの読み書きだけ** を持つ。ユニットテストと pcap fixtures で閉じる。
 
-親: #001。次: #005（制御面 I/O）、#006（メディア I/O）。
+親: [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2)。次: [#6](https://github.com/MikanseiLaboratory/netaudio-rs/issues/6)（制御面 I/O）、[#7](https://github.com/MikanseiLaboratory/netaudio-rs/issues/7)（メディア I/O）。
 
 ## Inferno の対応ファイル
 
@@ -23,7 +24,7 @@ labels: enhancement
 
 メディア 9 バイトヘッダは `device_server/flows_rx.rs`（`dev`）および `master` の `flows_rx.rs`。
 
-`binary_packets_refactor` ブランチはパケット整理の差分確認用。コピーせず、フィールド意味が変わっていないかを見る。
+`binary_packets_refactor` ブランチはパケット整理の差分確認用。フィールド意味が変わっていないかを見る。
 
 ## v1 で揃えるもの
 
@@ -37,8 +38,8 @@ labels: enhancement
 ## 受け入れ
 
 - Inferno / DVS / 実機の pcap を fixtures にして encode/decode が往復する
-- `protocol` モジュールが `std::net` も tokio も引かない
-- Inferno クレートへの Cargo 依存が無い
+- `protocol` モジュールはパケットの ser/de だけ（I/O は [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5) / [#6](https://github.com/MikanseiLaboratory/netaudio-rs/issues/6)）
+- ser/de は自前（または `byteorder`）
 
 ## Later（この Issue の外）
 

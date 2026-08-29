@@ -1,7 +1,7 @@
 //! In-process media clock.
 //!
 //! Overlay over `std::time::Instant` (QPC on Windows): shift + freq_scale.
-//! Sources: PTPv1 listen-only, then media-packet timestamps. See docs/issues/003.
+//! Sources: PTPv1 listen-only, then media-packet timestamps. See #4.
 
 #![allow(dead_code)]
 

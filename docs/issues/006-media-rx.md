@@ -1,13 +1,14 @@
 ---
 title: メディア RX — subscribe、リングバッファ、AudioBlock API
 labels: enhancement
+github: 7
 ---
 
 # メディア RX — subscribe、リングバッファ、AudioBlock API
 
 Phase 2。Dante Controller からこのデバイスの RX にパッチすると、アプリのコールバックに PCM が届く。
 
-親: #001。依存: #002, #004, #005。時計は最初メディアパケット駆動（#003 の優先 2）でよい。
+親: [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2)。依存: [#3](https://github.com/MikanseiLaboratory/netaudio-rs/issues/3), [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5), [#6](https://github.com/MikanseiLaboratory/netaudio-rs/issues/6)。時計は最初メディアパケット駆動（[#4](https://github.com/MikanseiLaboratory/netaudio-rs/issues/4) の優先 2）。
 
 ## Inferno の対応
 
@@ -42,8 +43,8 @@ device.set_rx_handler(|block: AudioBlock| {
 
 - DC がパッチ → flows-control で相手 TX に subscribe → 向こうから UDP が来る
 - パケット時刻でリングバッファに書く。アプリは「今のメディア時刻 − latency」から読む
-- multicast flow は #004 の IF 指定 join（v1 主経路は unicast。mcast は可能なら足す）
-- 未パッチではブロックしない。無音の捏造は任意（Inferno2pipe はフロー無しで時刻が止まる）
+- multicast flow は [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5) の IF 指定 join（v1 主経路は unicast。mcast は可能なら足す）
+- 未パッチではブロックしない。無音の生成は任意（Inferno2pipe はフロー無しで時刻が止まる）
 
 PCM は BE integer → 内部 i32。ホストエンディアンでアプリへ。
 

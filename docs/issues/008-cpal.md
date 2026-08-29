@@ -1,19 +1,20 @@
 ---
 title: cpal feature — 既存 OS デバイスへの再生とキャプチャ
 labels: enhancement
+github: 9
 ---
 
 # cpal feature — 既存 OS デバイスへの再生とキャプチャ
 
-Phase 5。`netaudio` 本体は OS 音声 API を知らない。feature `cpal`（またはクレート `netaudio-cpal`）が `AudioBlock` を既存デバイスのコールバックへつなぐ。
+Phase 5。feature `cpal`（またはクレート `netaudio-cpal`）が `AudioBlock` を既存デバイスのコールバックへつなぐ。`netaudio` の default は PCM API。
 
-親: #001。依存: #006（RX）、将来 #007（TX）。
+親: [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2)。依存: [#7](https://github.com/MikanseiLaboratory/netaudio-rs/issues/7)（RX）、将来 [#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8)（TX）。
 
 ## 成果物
 
 受信 PCM を **すでに存在する** 出力デバイスへ出す。将来は既存入力を TX へ。
 
-接続先: WASAPI / CoreAudio / ALSA、環境により ASIO **ホスト**（cpal の ASIO は弱いので、足りなければ #009 で `asio-sys`）。
+接続先: WASAPI / CoreAudio / ALSA、環境により ASIO **ホスト**（cpal の ASIO が足りなければ [#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10) で `asio-sys`）。
 
 ## クロック
 
@@ -26,4 +27,4 @@ Phase 5。`netaudio` 本体は OS 音声 API を知らない。feature `cpal`（
 
 - Windows で WASAPI 出力デバイスから Dante RX が聞こえる
 - macOS / Linux でも同じ feature がビルドできる
-- `netaudio` の default feature は cpal なしのまま
+- default feature は PCM API のまま。`cpal` は feature フラグ
