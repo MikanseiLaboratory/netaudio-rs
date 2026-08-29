@@ -1,47 +1,94 @@
 # netaudio-rs
 
-Unofficial Dante-compatible Audio-over-IP library for Rust.
+Rust 向けの Dante 互換 Audio-over-IP ライブラリです。Audinate とは独立した研究開発です。
 
-`netaudio` is a **receive-first library**: the process appears as a Dante device, accepts patches from Dante Controller, and delivers PCM to the application. Clocking is an in-process overlay (`Instant` / QPC). **Windows is a first-class target**; macOS and Linux share the same API.
+`netaudio` は受信を先に実装したライブラリです。プロセスが Dante 機器として見え、Dante Controller からのパッチを受け、PCM をアプリケーションへ渡します。クロックはプロセス内の overlay（`Instant` / QPC）です。Windows を第一級の対象とし、macOS と Linux でも同じ API を使えます。
 
-Protocol layouts and the three-plane device model (control / media / clock) follow [Inferno](https://github.com/teodly/inferno) (`inferno_aoip` on `dev`, plus `transmit`, `stable`, and `master`). This crate is an original MIT implementation of that model.
+プロトコルのパケットレイアウトと、制御 / メディア / クロックの三面構成は、公開キャプチャと本リポジトリの仕様から起こした **MIT の独自実装** です。
 
-This project is unofficial and independent of Audinate. Dante is a trademark of Audinate Pty Ltd.
+Dante は Audinate Pty Ltd の商標です。
 
-## Status
+## 現状
 
-Private R&D. The plan is in GitHub Issues.
+プライベート R&D です。製品計画は GitHub Issues にあります。実装仕様（技術選定、プロトコル、公開 API、作業順）は [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) です。
 
-| GitHub | Topic |
+| GitHub | 内容 |
 | --- | --- |
-| [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2) | Tracking RFC — Inferno-aligned, Windows first-class RX crate |
-| [#3](https://github.com/MikanseiLaboratory/netaudio-rs/issues/3) | Protocol codecs (ARC / CMC / flows-control / media header) |
-| [#4](https://github.com/MikanseiLaboratory/netaudio-rs/issues/4) | In-process overlay clock (PTPv1 listen-only + media timestamps) |
-| [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5) | Interface-bound sockets, multicast, mDNS 5353, PTP ports |
-| [#6](https://github.com/MikanseiLaboratory/netaudio-rs/issues/6) | Control plane — appear in Dante Controller |
-| [#7](https://github.com/MikanseiLaboratory/netaudio-rs/issues/7) | Media RX — subscribe, ring buffer, `AudioBlock` |
-| [#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8) | TX — unicast, `tx_latency` ≥ 4 ms |
-| [#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9) | `cpal` feature — existing OS devices |
-| [#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10) | Audio host — user-space ASIO / VST3 |
+| [#2](https://github.com/MikanseiLaboratory/netaudio-rs/issues/2) | トラッキング RFC — Windows 第一級の受信クレート |
+| [#3](https://github.com/MikanseiLaboratory/netaudio-rs/issues/3) | プロトコルコーデック（ARC / CMC / flows-control / メディアヘッダ） |
+| [#4](https://github.com/MikanseiLaboratory/netaudio-rs/issues/4) | プロセス内 overlay 時計（PTPv1 待ち受け + メディア時刻） |
+| [#5](https://github.com/MikanseiLaboratory/netaudio-rs/issues/5) | インタフェース固定ソケット、マルチキャスト、mDNS 5353、PTP ポート |
+| [#6](https://github.com/MikanseiLaboratory/netaudio-rs/issues/6) | 制御面 — Dante Controller に表示する |
+| [#7](https://github.com/MikanseiLaboratory/netaudio-rs/issues/7) | メディア RX — 購読、リングバッファ、PCM 読み出し |
+| [#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8) | TX — ユニキャスト、`tx_latency` ≥ 4 ms |
+| [#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9) | `cpal` 機能 — 既存の OS デバイス |
+| [#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10) | オーディオホスト — ユーザー空間 ASIO / VST3 |
 
-v1 is Phase 3: control plane + media RX + overlay clock locked to PTPv1.
+v1 は Phase 3 です。制御面、メディア RX、PTPv1 にロックする overlay 時計までを含みます。
 
 ## v1
 
-| Item | v1 |
+| 項目 | v1 |
 | --- | --- |
-| Shape | Library (`netaudio`). Control, media, and clock run in-process |
+| 形態 | ライブラリ（`netaudio`）。制御・メディア・クロックはプロセス内で動作します |
 | OS | Windows / macOS / Linux |
-| Audio I/O | PCM via callback / Stream / ring buffer. OS audio APIs live in the app, or in [#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9) |
-| Latency | Configurable. Minimum **4 ms** (DVS-class software clock) |
-| Clock | Process-local overlay. PTPv1 listen-only, with media-packet timestamps as the Phase 2 source |
+| 音声 I/O | PCM は **`Device::try_read`** で取得します。任意で `set_rx_wakeup` を使えます。OS の再生 API はアプリケーション側、または [#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9) です |
+| レイテンシ | 設定可能です。下限は **4 ms**（DVS クラスのソフトウェアクロック）です |
+| クロック | プロセス内 overlay です。PTPv1 を待ち受け、メディアパケットの時刻も使います |
 
-## Later
+```rust
+let mut settings = netaudio::Settings::default();
+settings.name = "myrx".into();
+settings.bind = netaudio::Bind::Ip(std::net::Ipv4Addr::new(192, 168, 1, 10));
+settings.rx_channels = 2;
+let dev = netaudio::Device::start(settings).await?;
+let mut pcm = vec![0i32; 64 * 2];
+let mut frame = netaudio::AudioFrameMut {
+    media_time: netaudio::MediaTime { sample_index: 0, ns: 0 },
+    sample_rate: 0,
+    channels: 0,
+    samples: &mut pcm,
+};
+let frames = dev.try_read(&mut frame)?;
+```
 
-- TX channels ([#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8))
-- `cpal` feature: play/capture on existing WASAPI / CoreAudio / ALSA / ASIO **host** devices ([#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9))
-- User-space ASIO DLL / VST3 ([#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10))
+`Device::start` は、呼び出し側の tokio ランタイム上で動きます。`try_read` は未パッチまたは未到来のとき `0` を返し、呼び出し側バッファの内容はそのままです。
 
-## License
+## ポートとファイアウォール
+
+すべての UDP ソケットは、設定した **ユニキャスト IPv4** に bind します。そのインタフェースで次のポートを開けてください。
+
+| 面 | UDP | 内容 |
+| --- | --- | --- |
+| ARC | 4440（`alt_port+0`） | Dante Controller の制御 |
+| CMC | 8800（`alt_port+1`） | 機器アドバタイズ |
+| Info | 8700（`alt_port+3`） | bind。送信先は `224.0.0.231:8702` と `224.0.0.233:8708` |
+| メディア RX | `0x3800..=0x397F` | TX からのユニキャスト。keepalive `[0x13,0x37]` を 250 ms 間隔 |
+| mDNS | 5353 | アナウンスの送信元は 5353 です。`224.0.0.251` に参加します |
+| PTP | 319 / 320 | 待ち受け。グループ `224.0.1.129`。ポート番号は固定で、`alt_port` は ARC / CMC / flows / info だけをずらします |
+
+v1 の flows-control **4455**（`alt_port+2`）はクライアントです。TX へ `0x0100` を送ります。
+
+使うマルチキャストグループは `224.0.0.251`（mDNS）、`224.0.0.231` / `224.0.0.233`（info / heartbeat）、`224.0.1.129`（PTPv1）です。
+
+### Linux の PTP bind
+
+UDP 319/320 には `CAP_NET_BIND_SERVICE`（または root）が必要なことがあります。未設定のときはメディア駆動の overlay で起動を続けます（`Error::PtpBindDenied`）。例:
+
+```
+sudo setcap cap_net_bind_service=+ep /path/to/your/binary
+```
+
+### Windows
+
+制御ソケットは exclusive-address-use、mDNS は reuse、メディアソケットは未接続のまま使います（`SIO_UDP_CONNRESET` を切る）。送信側リセット後も受信を続けられます。
+
+## 後続
+
+- TX チャネル（[#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8)）
+- `cpal` 機能: 既存の WASAPI / CoreAudio / ALSA / ASIO **ホスト** デバイスでの再生・キャプチャ（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）
+- ユーザー空間 ASIO DLL / VST3（[#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10)）
+
+## ライセンス
 
 MIT
