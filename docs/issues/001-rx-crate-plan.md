@@ -1,12 +1,17 @@
 ---
-title: クロスプラットフォーム受信クレート — 技術要件と実装計画
+title: クロスプラットフォーム受信クレート — Inferno 準拠・Windows 第一級
 labels: rfc, tracking
 ---
 
-# クロスプラットフォーム受信クレート — 技術要件と実装計画
+# クロスプラットフォーム受信クレート — Inferno 準拠・Windows 第一級
 
-Inferno ([teodly/inferno](https://github.com/teodly/inferno)) の実装調査を踏まえた、本リポジトリの方針。
-**Inferno の fork ではない。** プロトコルの事実関係は Inferno / Dante Controller / パケット観測を参照し、実装は新規に書く。
+本リポジトリは [Inferno](https://github.com/teodly/inferno)（`inferno_aoip`）のデバイスモデルとパケットレイアウトを正として、**Windows / macOS / Linux で同じ API になる MIT クレート** を新規実装する。
+
+Inferno 本体は GPL/AGPL かつ Linux（ALSA + Statime + `usrvclock`）向け。こちらはプロトコル知識と相互運用テストを Inferno から取り、実装はオリジナル。
+
+表記方針: **作るものを肯定形で書く。** 「〜ではない」は法務の Audinate disclaimer に限る。後回しの仕事は Later に置く。
+
+関連: #002 プロトコル / #003 時計 / #004 ソケット / #005 制御面 / #006 メディア RX / #007 TX / #008 cpal / #009 オーディオホスト
 
 ---
 
@@ -14,14 +19,14 @@ Inferno ([teodly/inferno](https://github.com/teodly/inferno)) の実装調査を
 
 Dante ネットワーク上で **受信デバイスとして見え、届いた PCM をアプリが汎用に扱える** Rust クレート。
 
-| 項目 | v1 の答え |
+| 項目 | v1 |
 | --- | --- |
-| 形態 | ライブラリ (`netaudio`)。デーモンプロセスは置かない |
-| OS | Windows / macOS / Linux |
-| 音声 I/O | **クレートの外**。コールバック / Stream / リングバッファで PCM を渡す |
-| 仮想デバイス | **今はやらない**。後述の「計画」に残す |
-| 遅延 | 設定可能。下限 **4 ms** でよい（DVS と同じオーダー） |
-| クロック | プロセス内。`statime` / `ptp4l` / `usrvclock` に依存しない |
+| 形態 | ライブラリ (`netaudio`)。制御・メディア・時計はプロセス内 |
+| OS | **Windows を第一級**。macOS / Linux は同じ API |
+| 音声 I/O | クレート境界は PCM。コールバック / Stream / リングバッファ |
+| 仮想デバイス | Later（#009） |
+| 遅延 | 設定可能。下限 **4 ms**（DVS と同じオーダー） |
+| クロック | プロセス内 overlay。外部 PTP デーモンなし |
 
 アプリ側の想定（クレートが知らなくてよい）:
 
@@ -30,26 +35,41 @@ Dante ネットワーク上で **受信デバイスとして見え、届いた P
 - あとから `cpal` で実デバイスへ出す
 - 自前の DSP / メータ
 
-「汎用」の意味は **OS の音声 API に結び付けない** こと。Inferno の失敗点は、プロトコル実装が ALSA PCM プラグインと Unix クロックデーモン起動に直結していること。
+「汎用」= **OS の音声 API はアプリ（または後続 feature）の責任**。Inferno の `alsa_pcm_inferno` はプロトコルと ALSA が直結している。本クレートはそこで層を切る。
 
 ---
 
-## 2. 意図的にやらないこと（v1）
+## 2. Inferno の参照ブランチ
 
-- 仮想サウンドカード（ALSA plugin / WDM / 仮想 ASIO DLL）
-- 外部 PTP デーモン、Unix ドメインソケット、`/dev/ptp`
-- OS システム時刻の操作（NTP 衝突は Inferno 既知の問題）
-- Dante Domain Manager
-- AES67 / ST 2110-30（メディアパケットは似ているが制御面が別）
-- Inferno ソースのコピー（GPL/AGPL。本リポジトリは MIT）
+本リポジトリに Inferno のブランチは無い。参照先は upstream。
+
+| Inferno ブランチ | 中身 | 本クレートでの使い方 |
+| --- | --- | --- |
+| **`dev`**（現行） | `protocol/`（ARC/CMC/flows/mcast）、`device_server/`（RX+TX+multicast+peaks）、`media_clock.rs` | **プロトコルとデバイス構成の正** |
+| **`transmit`** | `flows_tx.rs`、`media_clock.rs`、TX スレッド | TX（#007）のパケットとフロー制御 |
+| **`tx_multicast`** | TX multicast | #007 の後続 |
+| **`master`** | 古い capture、`cirb`、ALSA なし | ポータブル受信の祖先。Windows 向けに薄い |
+| **`stable`** | ALSA + `usrvclock-rs`。作者コメント: PTP 導入前の Inferno2pipe は Windows で動く見込みがあった | 「時計と OS 音声を外に出せば Windows に乗る」の根拠 |
+| `alsa-plugin` / `jack-compat` | Linux 仮想デバイス | #009 の参考。v1 では実装しない |
+| `binary_packets_refactor` | パケット整理 | #002 の差分確認 |
+| `latency_reporting` | DC への遅延・ピーク | #005 の後続 |
+| `multiprocess` / `cpu32bit` / `stability-experiments` | 実験 | 今は見ない |
+
+作者コメント（[Inferno #3 Windows](https://github.com/teodly/inferno/issues/3)）:
+
+- クロスプラットフォーム音声 I/O のあと残る Unix 依存は **時計** と RT スレッド優先度
+- Statime は「別の Dante 時計の取り方」があれば不要。精度不足は TX/RX latency で吸収
+- 候補: **listen-only PTPv1**（ソフトタイムスタンプ）、またはメディアパケットの timestamp
+- Windows の 1024 未満ポートは管理者不要が基本
+- 仮想サウンドカードは OS ごとに書き直し。VST3 ならクロスプラットフォーム（リサンプル前提）
+
+本クレートの答え: **#003 の overlay 時計** と **#004 の std/socket2 ソケット** を先に固定し、音声境界は PCM API（#006）にする。
 
 ---
 
-## 3. Inferno から持ち込むべき事実（コピーしない）
+## 3. デバイスの 3 面（Inferno と同じ）
 
-### 3.1 役割分担
-
-Dante 互換の「デバイス」は次の 3 面が揃って初めて Controller からパッチできる。
+Dante 互換デバイスは次の 3 面が揃って Controller からパッチできる。
 
 ```
 [制御面]  mDNS広告 + ARC + CMC + info multicast
@@ -57,11 +77,10 @@ Dante 互換の「デバイス」は次の 3 面が揃って初めて Controller
 [時刻面]  PTP ドメイン上のメディアクロック
 ```
 
-受信専用でも、**制御面がないとパッチできない**。
-「RTP を待ち受けるだけ」では Dante ハードウェアは送ってこない。
-（マルチキャスト購読は例外で、既存 mcast に join する道はある。v1 の主経路は Controller パッチによる unicast subscribe。）
+受信専用でも制御面が要る。RTP 待ち受けだけでは Dante ハードウェアは送ってこない。
+マルチキャスト購読は既存 mcast に join する道がある。v1 の主経路は Controller パッチによる unicast subscribe。
 
-### 3.2 ポートとサービス（既知の既定値）
+### 3.1 ポートとサービス（既知の既定値）
 
 | 面 | 内容 | 既定 |
 | --- | --- | --- |
@@ -73,36 +92,38 @@ Dante 互換の「デバイス」は次の 3 面が揃って初めて Controller
 | media | オーディオ flow | OS が割り当て（keepalive `0x13 0x37`、250 ms） |
 | PTP | メディアクロック | UDP 319 / 320 |
 
-同一 IP で複数インスタンスを動かすなら、Inferno の `ALT_PORT` と同様に制御ポートをずらす。v1 では単一インスタンスでよい。
+同一 IP で複数インスタンスを動かすなら、Inferno の `ALT_PORT` と同様に制御ポートをずらす。v1 は単一インスタンス。
 
-### 3.3 メディアパケット
+### 3.2 メディアパケット
 
 UDP ペイロード先頭 9 バイトがヘッダ。残りがインターリーブ PCM。
 
 - `[1..5)` 秒（BE u32）
 - `[5..9)` その秒の中のサンプル位置（BE u32）
 - `[9..]` サンプル。16/24/32-bit integer、チャンネルはインターリーブ
-- 内部表現は **i32 に拡張**（Inferno と同じ。アプリへ出す境界も i32 でよい）
+- 内部表現は **i32 に拡張**（Inferno と同じ。アプリへ出す境界も i32）
 
-タイムスタンプは PTP メディアクロック上のサンプル位置。これが「デーモンなし受信」の鍵。
+タイムスタンプは PTP メディアクロック上のサンプル位置。デーモンなし受信の鍵。
 
-### 3.4 Inferno が Windows で落ちる理由（本クレートが避けるもの）
+### 3.3 Inferno が Linux に固定している箇所（こちらで置き換えるもの）
 
-1. **usrvclock** — Unix datagram + `nix::ClockId` + `/dev/ptp` の `clock_adjtime`
-2. **Statime デーモン必須** — キャプチャだけでも起動時に時計待ち（作者曰く設計上必須ではない）
-3. **alsa_pcm_inferno** — `eventfd` / ALSA mmap。Windows に対応物がない
-4. 起動パスが 1–3 に直結
+| Inferno | 本クレート |
+| --- | --- |
+| `usrvclock`（Unix datagram + `/dev/ptp` + `clock_adjtime`） | #003 overlay（`Instant` / QPC） |
+| Statime デーモン必須 | プロセス内 PTPv1 listen-only + メディアパケット時刻 |
+| `alsa_pcm_inferno`（`eventfd` / ALSA mmap） | #006 PCM API。OS デバイスは #008 |
+| 起動パスが上記に直結 | `Device::start` はソケット + overlay だけ |
 
-プロトコル本体（UDP、mDNS、ARC/CMC、リングバッファ）は標準ソケットで書ける。mDNS 実装（searchfire）は既に `cfg(windows)` がある。つまり **移植の本体は時計と I/O 境界の切り方** であり、Dante デコードそのものではない。
+プロトコル本体（UDP、mDNS、ARC/CMC、リングバッファ）は標準ソケット。Inferno の `searchfire` には既に `cfg(windows)` がある。移植の本体は **時計と I/O 境界**。
 
 ---
 
-## 4. アーキテクチャ（揃えるべきもの）
+## 4. アーキテクチャ
 
-4 層。下から依存。上の層が OS 音声 API を知ってはいけない。
+4 層。下から依存。上の層は OS 音声 API を知らない。
 
 ```
-アプリ / 将来の cpal backend / 将来の仮想デバイス
+アプリ / 将来の cpal backend / 将来のオーディオホスト
         ↓  PCM + メディア時刻
 [device]   ライフサイクル、設定、RX 購読 API
 [media]    flow ソケット、keepalive、タイムスタンプ付きリングバッファ
@@ -110,166 +131,95 @@ UDP ペイロード先頭 9 バイトがヘッダ。残りがインターリー�
 [protocol] パケットの ser/de のみ。I/O なし
 ```
 
-### 4.1 `protocol` — 純コーデック
+詳細は #002〜#006。
 
-- mDNS TXT / サービス型
-- ARC / CMC / flows-control / info multicast
-- メディア 9 バイトヘッダ
-
-ここはユニットテストだけで閉じる。pcap を fixtures にする。
-
-### 4.2 `clock` — デーモンを置き換える層（最重要）
-
-**OS の時計は動かさない。** overlay だけ持つ。
-
-```
-overlay_ns = local_ns + shift + (local_ns - last_sync) * freq_scale
-```
-
-local は `std::time::Instant` / QPC。`CLOCK_TAI` も `/dev/ptp` も使わない。
-これが Inferno 作者の「残る Linuxism はクロック」に対する答え。
-
-v1 で実装する時計ソース（優先順）:
-
-| 優先 | 方式 | 用途 | 精度 |
-| --- | --- | --- | --- |
-| 1 | プロセス内 PTPv1 listen-only（ソフトウェアタイムスタンプ） | Controller に時計ありと見せる、TX 将来、無音生成 | 4 ms バジェットで足りる |
-| 2 | 受信メディアパケットのタイムスタンプで駆動 | PTP が取れないときの RX | フローが切れると時刻が止まる（Inferno2pipe と同じ） |
-
-やらない:
-
-- Statime / ptp4l への接続
-- ハードウェアタイムスタンプ必須化
-- システム時刻への step/freq steer
-
-4 ms 下限の意味: DVS がソフトウェア時計で 4 ms を下限にしているのと同じ。ソフトウェア RX タイムスタンプの揺らぎを playout 遅延で吸収する。`rx_latency` / `tx_latency` はナノ秒で設定し、デフォルト 10 ms、**最小 4_000_000 ns**。これより低くは API で拒否してよい。
+`rx_latency` / `tx_latency` はナノ秒。デフォルト 10 ms、**最小 4_000_000 ns**。これより低い値は API で拒否する。
 
 PTP ポート:
 
-- **Windows** — 1024 未満の bind 制限はない。管理者不要が基本
-- **Linux / macOS** — 319/320 は privileged。ライブラリは bind 失敗を明示し、`CAP_NET_BIND_SERVICE` / root をドキュメントする。別デーモンは立てない
+- **Windows** — 1024 未満の bind は管理者不要が基本
+- **Linux / macOS** — 319/320 は privileged。bind 失敗を明示し、`CAP_NET_BIND_SERVICE` / root をドキュメントする。別デーモンは立てない
 
-PTPv2 は AES67 経路。v1 は **PTPv1 slave のみ** で Dante ハードウェアと噛み合わせる。v2 は後回し。
+v1 の PTP は **PTPv1 slave（listen-only）**。Dante ハードウェアと噛み合わせる。PTPv2 / AES67 は Later。
 
-### 4.3 `media` — 受信の実体
-
-- フローあたり UDP ソケット。DC がパッチすると flows-control で相手 TX に subscribe し、向こうから UDP が来る
-- 250 ms keepalive（既知ペイロード `0x13 0x37`）
-- パケット時刻でリングバッファに書く。アプリは「今のメディア時刻 − latency」から読む
-- multicast flow は `join_multicast_v4` を **特定 IF の IPv4** で行う（Windows で Default IF にすると死ぬ）
-
-受信スレッドと Tokio 制御面は分ける。Inferno が mio + 専用スレッドにしている理由（リアルタイム、キュー滞留）は正しい。v1 は `thread + nonblocking UDP` でよい。優先度は best-effort（Windows は `THREAD_PRIORITY_TIME_CRITICAL` 相当、失敗しても動作）。
-
-### 4.4 `device` — アプリが触る面
-
-望ましい形（実装前の契約）:
-
-```rust
-let device = Device::start(Settings {
-    name: "Mikansei RX".into(),
-    bind: Bind::Ip(local_v4),
-    rx_channels: 8,
-    sample_rate: 48_000,
-    rx_latency: Duration::from_millis(4), // 下限 4ms
-    ..Default::default()
-}).await?;
-
-// Dante Controller からこのデバイスの RX にパッチできる
-
-device.set_rx_handler(|block: AudioBlock| {
-    // block.media_time  : メディアクロック上の先頭サンプル
-    // block.sample_rate
-    // block.channels    : planar &[ &[Sample] ]  または interleaved
-});
-```
-
-必須設定: `BIND_IP`（IF 名でも可）、`NAME`、`RX_CHANNELS`、`SAMPLE_RATE`、`RX_LATENCY`。
-Device ID は未指定なら IP + process から安定生成（Inferno と同趣旨。状態キーになる）。
-
-v1 の TX チャンネル数は 0 でよい。ただし設定型に `tx_latency` を先に持たせ、下限 4 ms を同じコードで検証する。
+v1 の TX チャンネル数は 0。設定型に `tx_latency` を先に持たせ、下限 4 ms を同じコードで検証する。
 
 ---
 
-## 5. クロスプラットフォームで最初に潰す落とし穴
+## 5. クロスプラットフォームで先に潰す点
 
-1. **IF 固定**  
-   マルチ NIC が普通。ソケットはすべて `bind(local_v4)`。multicast は `IP_MULTICAST_IF` + join with interface IP。`0.0.0.0` 放置は Windows で壊れる。
-
-2. **mDNS 5353**  
-   macOS は mDNSResponder、Windows は Bonjour が入っていると 5353 が埋まっている。`SO_REUSEADDR` / `SO_REUSEPORT` と、送れても受け取れないケースを最初に検証する。だめならシステム DNS-SD ではなく、5353 への send-only + 高ポート受信の可否を測る。ここが制御面の最大リスク。
-
-3. **ファイアウォール**  
-   制御 UDP と ephemeral media ポートの inbound。ドキュメントに明示。アプリ側の責任でも、クレートは bind したポート一覧を返せるようにする。
-
-4. **IPv4 のみ**  
-   Dante は IPv4。IPv6 はやらない。
-
-5. **バイトオーダ**  
-   メディア PCM はビッグエンディアン整数。ホストエンディアンで i32 に直してからアプリへ。
+1. **IF 固定** — ソケットはすべて `bind(local_v4)`。multicast は `IP_MULTICAST_IF` + join with interface IP（#004）
+2. **mDNS 5353** — macOS の mDNSResponder、Windows の Bonjour と共存。`SO_REUSEADDR` / `SO_REUSEPORT`。送れても受け取れないケースを最初に測る（#004）
+3. **ファイアウォール** — 制御 UDP と ephemeral media の inbound。クレートは bind したポート一覧を返す
+4. **IPv4** — Dante は IPv4。v1 は IPv4 のみ
+5. **バイトオーダ** — メディア PCM はビッグエンディアン整数。ホストの i32 にしてからアプリへ
 
 ---
 
-## 6. 計画に残すもの（今は実装しない）
+## 6. Later（v1 のあと）
 
-仮想デバイスは **「cpal を使えば ASIO 仮想デバイスになる」ではない。** 別物なので分けて書く。
+仮想デバイスと cpal は別物なので段階を分ける。
 
-| 段階 | 何 | 何でない |
+| 段階 | 成果物 | 接続先 |
 | --- | --- | --- |
-| A. 今 | 汎用 PCM API | 音声デバイス |
-| B. 次 | **cpal backend**（feature `cpal`）: 受信 PCM を既存の出力デバイスへ出す / 既存入力を将来の TX へ | 仮想デバイスではない。WASAPI / CoreAudio / ALSA /（環境により）ASIO **ホスト** に乗る |
-| C. その次 | **ASIO ホスト** を明示サポート。cpal の ASIO は弱いので `asio-sys` 等を別 feature にする可能性が高い | DAW から見えるドライバではない |
-| D. 遠い | 仮想デバイス。ユーザー空間 ASIO DLL（署名不要）が現実的。WDM は署名が要り本リポジトリの対象外 | |
+| A. 今 | 汎用 PCM API | アプリのコールバック / ファイル / 他プロトコル |
+| B. 次 | **cpal backend**（feature `cpal`）#008 | 既存の WASAPI / CoreAudio / ALSA /（環境により）ASIO **ホスト** |
+| C. その次 | **ASIO ホスト**を明示（`asio-sys` 等の別 feature の可能性） | 既存 ASIO デバイス |
+| D. 遠い | ユーザー空間 ASIO DLL（署名不要）または VST3 #009 | DAW から見えるホスト。WDM 署名付きドライバは対象外 |
 
-B を足すときも、`netaudio` 本体は cpal を知らない。`netaudio-cpal` または feature で `AudioBlock` をデバイスコールバックに接続するだけ。クロックは:
+B を足すときも `netaudio` 本体は cpal を知らない。`netaudio-cpal` または feature で `AudioBlock` をデバイスコールバックに接続する。クロックは:
 
-- 再生: Dante メディア時計がマスター → 必要なら **リサンプリング** してデバイスコールバックへ（デバイスがマスターのとき）
-- 将来 TX: デバイス時計がマスターなら同様にリサンプルしてネットワークへ出す。4 ms はここのジッタ余裕
+- 再生: Dante メディア時計がマスター → 必要なら **リサンプリング** してデバイスコールバックへ
+- 将来 TX: デバイス時計がマスターなら同様にリサンプルしてネットワークへ。4 ms はここのジッタ余裕
 
-TX を足すときの制約: `tx_latency` 設定可能、最小 4 ms。DVS 相当。1 ms は狙わない。
+TX: `tx_latency` 設定可能、最小 4 ms。DVS 相当。1 ms は狙わない。
+
+その他 Later: Dante Domain Manager、AES67 / ST 2110-30、PTP leader、ALT_PORT 複数インスタンス。
 
 ---
 
-## 7. 技術スタック（v1 で揃えるもの）
+## 7. 技術スタック（v1）
 
 | 用途 | 採用 | 理由 |
 | --- | --- | --- |
-| async 制御面 | tokio | 既存資産・タイムアウト・キャンセル |
+| async 制御面 | tokio | タイムアウト・キャンセル |
 | UDP multicast | tokio + socket2 | IF 指定、reuse、TTL |
 | メディアスレッド | std::thread + nonblocking socket（mio は任意） | 制御面と分離 |
-| 時刻 | `std::time::Instant` overlay | OS 非依存 |
-| ser/de | 自前 or `byteorder` / `binary-serde` | Inferno 依存を増やさない |
+| 時刻 | `std::time::Instant` overlay | OS 非依存（Windows は QPC） |
+| ser/de | 自前 or `byteorder` | Inferno クレートを依存にしない |
 | log | `log` crate | アプリが backend を選ぶ |
-| 禁止 | `nix`, `alsa`, `libc` の Unix API, Unix datagram, `/dev/ptp` | クロスプラットフォームを壊す |
 
-依存は薄く。mdns は自前か、Windows 実装がある crate を **IF 指定できるものだけ** 使う。
+依存は薄く。mDNS は自前か、**IF 指定できる** Windows 実装付き crate。
+
+Unix 専用 API（`nix`、`alsa`、Unix datagram、`/dev/ptp`）は使わない。これが Windows 第一級の条件。
 
 ---
 
 ## 8. 実装フェーズ
 
 **Phase 0 — 契約（この Issue）**  
-API・非目標・時計方針を固定。
+API・範囲・時計方針を固定。
 
-**Phase 1 — 制御面で DC に出る**  
-mDNS 広告 + ARC/CMC の最小セット。チャンネル数・名前・IP が見えればよい。時計は「なし」でも広告は出す。  
+**Phase 1 — 制御面で DC に出る** → #005  
+mDNS 広告 + ARC/CMC の最小セット。チャンネル数・名前・IP が見える。時計は後回しでも広告は出す。  
 受け入れ: Dante Controller のデバイス一覧に名前が出る。
 
-**Phase 2 — メディア RX + 汎用 API**  
-flows-control subscribe、unicast flow 受信、9 バイトヘッダ、リングバッファ、`AudioBlock` コールバック。時計は **メディアパケット駆動** でよい。  
-受け入れ: DC からパッチするとコールバックに PCM が届く。未パッチではブロックしない（無音を捏造しなくてよい）。
+**Phase 2 — メディア RX + 汎用 API** → #006  
+flows-control subscribe、unicast flow 受信、9 バイトヘッダ、リングバッファ、`AudioBlock`。時計は **メディアパケット駆動** でよい。  
+受け入れ: DC からパッチするとコールバックに PCM が届く。未パッチではブロックしない（無音の捏造は任意）。
 
-**Phase 3 — プロセス内 PTPv1 listen-only**  
-overlay を PTP にロック。DC のクロック表示が破綻しないこと。`rx_latency` 4 ms で連続受信が落ちないこと（負荷は別途測る）。  
+**Phase 3 — プロセス内 PTPv1 listen-only** → #003  
+overlay を PTP にロック。DC のクロック表示が破綻しない。`rx_latency` 4 ms で連続受信が落ちない（負荷は別途測る）。  
 受け入れ: ハードウェア 1 台以上 + DC で 1 時間オーダーの連続 RX。
 
-**Phase 4 — TX（最小 4 ms）**  
-TX チャンネル、unicast 送信、`tx_latency`。仮想デバイスはまだ不要。アプリが PCM を書き込む API。
+**Phase 4 — TX（最小 4 ms）** → #007  
+TX チャンネル、unicast 送信、`tx_latency`。アプリが PCM を書き込む API。
 
-**Phase 5 — cpal feature**  
+**Phase 5 — cpal feature** → #008  
 既存デバイスへの再生。リサンプル方針をここで決める。
 
-**Phase 6 — ASIO ホスト / 仮想デバイス**  
-調査 Issue を別途切る。この Issue の実装範囲外。
+**Phase 6 — オーディオホスト** → #009  
+ASIO DLL / VST3。この Issue の実装範囲の外。
 
 ---
 
@@ -278,10 +228,10 @@ TX チャンネル、unicast 送信、`tx_latency`。仮想デバイスはまだ
 - Windows 10/11, macOS, Linux で同じ API がコンパイルできる
 - 外部プロセスなしで起動する
 - Dante Controller から RX パッチできる
-- アプリは `AudioBlock` 以外の音声 API を知らなくて受信できる
+- アプリは `AudioBlock` だけで受信できる
 - `rx_latency` を 4 ms 以上で設定できる
-- OS の時刻を変更しない
-- Inferno のソースを含まない
+- システム時刻はホストの設定のまま（overlay のみ）
+- ツリーに Inferno のソースを置かない（参照とテストのみ）
 
 テスト相手: Dante Controller、実機、可能なら Inferno / DVS をピアにする。自動テストは loopback 2 インスタンス（同じホスト、ポート分離）。
 
@@ -289,18 +239,19 @@ TX チャンネル、unicast 送信、`tx_latency`。仮想デバイスはまだ
 
 ## 10. 法務（実装前に読む）
 
-- Audinate 非公認。プロトコルは非公開で、実装はリバースエンジニアリングに基づく
+- 本プロジェクトは Audinate 非公認。プロトコルは非公開で、実装はリバースエンジニアリングに基づく
 - 特許が絡む。私的利用とバイナリ配布は別問題。README に disclaimer を置く
-- Inferno は GPL-3.0-or-later OR AGPL-3.0-or-later。**コードを持ってこない。** パケットレイアウトの知識と相互運用テストは問題にしない
+- Inferno は GPL-3.0-or-later OR AGPL-3.0-or-later。**コードは持ってこない。** パケットレイアウトの知識と相互運用テストは問題にしない
 - 本リポジトリは MIT（fairlight-live-rs に合わせる）
-- 偽装製品にしない。表示名は公式 Dante を名乗らない
+- 表示名は独自名（例: `Mikansei RX`）。互換であることは README で明示する
 
 ---
 
 ## 11. 調査ソース
 
-- Inferno README / `inferno_aoip`（制御・メディア・時計の接続）
+- Inferno README / `inferno_aoip`（`dev` の `protocol/` と `device_server/`）
 - Inferno Issue [#3 Windows](https://github.com/teodly/inferno/issues/3), [#7 clocking](https://github.com/teodly/inferno/issues/7)
-- `usrvclock-rs`（overlay の意味。Unix 実装は使わない）
+- Inferno ブランチ `transmit`, `stable`, `master`, `tx_multicast`
+- `usrvclock-rs`（overlay の意味。Unix 実装は使わず、式だけ借りる）
 - Statime（デーモンとしては使わない。PTP ステートマシンの参照にはなり得る）
 - [network-audio-controller](https://github.com/chris-ritsen/network-audio-controller)

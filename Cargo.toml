@@ -15,5 +15,5 @@ tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt"] }
 
 [features]
 default = []
-# Planned: play/capture via existing OS audio devices. Not a virtual device.
+# Planned: play/capture on existing WASAPI / CoreAudio / ALSA / ASIO host devices.
 cpal = []

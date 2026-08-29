@@ -2,7 +2,8 @@
 //!
 //! v1 is receive-first: appear as a Dante device, accept patches from
 //! Dante Controller, and deliver PCM to the application through a
-//! backend-agnostic API. Clocking is in-process. No PTP daemon.
+//! backend-agnostic API. Clocking is an in-process overlay. Windows,
+//! macOS, and Linux share the same API. Protocol model follows Inferno.
 
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 

@@ -1,5 +1,5 @@
 //! Control-plane codecs (mDNS, ARC, CMC, flows-control, info multicast).
 //!
-//! No I/O here — pure serialize/deserialize so it can be tested offline.
+//! Pure serialize/deserialize. Tested offline with pcap fixtures.
 
 #![allow(dead_code)]

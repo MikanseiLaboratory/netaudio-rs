@@ -2,24 +2,33 @@
 
 Unofficial Dante-compatible Audio-over-IP library for Rust.
 
-Receive-first, library-first, cross-platform. No external PTP daemon.
-Not a fork of [Inferno](https://github.com/teodly/inferno).
+Cross-platform `netaudio` crate. v1 is a **receive-first library**: the process appears as a Dante device, accepts patches from Dante Controller, and delivers PCM to the application. Clocking is an in-process overlay. **Windows is a first-class target**, with macOS and Linux in the same API.
 
-This project is **not affiliated with, authorized, or endorsed by Audinate**.
-Dante is a trademark of Audinate Pty Ltd.
+Protocol layouts and the three-plane device model (control / media / clock) follow [Inferno](https://github.com/teodly/inferno) (`inferno_aoip` on `dev`, plus `transmit`, `stable`, and `master`). This crate is an original MIT implementation of that model.
+
+This project is unofficial and independent of Audinate. Dante is a trademark of Audinate Pty Ltd.
 
 ## Status
 
-Private R&D. Plan is in [`docs/issues/001-rx-crate-plan.md`](docs/issues/001-rx-crate-plan.md) until a follow-up agent opens GitHub Issues.
+Private R&D. Tracking RFC: [`docs/issues/001-rx-crate-plan.md`](docs/issues/001-rx-crate-plan.md). Issue index: [`docs/issues/README.md`](docs/issues/README.md).
 
-Follow-up (create private repo, register deploy key, push, open issues): [`docs/FOLLOWUP.md`](docs/FOLLOWUP.md).
+Publishing those files as GitHub Issues: [`docs/FOLLOWUP.md`](docs/FOLLOWUP.md).
 
-## Non-goals (v1)
+## v1 scope
 
-- Virtual soundcard (ALSA / WDM / ASIO driver)
-- External daemons (`statime`, `ptp4l`, `usrvclock`)
-- AES67 / SMPTE ST 2110-30
-- Dante Domain Manager
+| Item | v1 |
+| --- | --- |
+| Shape | Library (`netaudio`). One process, in-library threads |
+| OS | Windows / macOS / Linux |
+| Audio I/O | PCM via callback / Stream / ring buffer. OS audio APIs live in the app (or a later `cpal` feature) |
+| Latency | Configurable. Minimum **4 ms** (DVS-class software clock) |
+| Clock | Process-local overlay (`Instant` / QPC). PTPv1 listen-only + media-packet timestamps |
+
+## Later
+
+- `cpal` feature: play/capture on existing WASAPI / CoreAudio / ALSA / ASIO **host** devices
+- TX channels (`tx_latency` ≥ 4 ms)
+- User-space ASIO DLL / VST3 (installable audio host). Separate issues.
 
 ## License
 

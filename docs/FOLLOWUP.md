@@ -1,81 +1,65 @@
-# 後続エージェント向け
+# GitHub Issues への同期
 
-この Cloud Agent には GitHub 資格情報がなく、リモート作成・Issue 投稿・push はしていない。
-**GitHub Issue は作らない。** `docs/issues/` の Markdown を `gh issue create` する。
+計画の正本は [`docs/issues/`](issues/README.md)。この Cloud Agent の GitHub token は **Issues 書き込みが 403**（`Resource not accessible by integration`）。リポジトリの `has_issues` は true、open は 0。
 
-## 1. private リポジトリ
-
-```bash
-gh repo create MikanseiLaboratory/netaudio-rs \
-  --private \
-  --description "Unofficial Dante-compatible AoIP library (receive-first, cross-platform)" \
-  --source=. \
-  --remote=origin \
-  --disable-wiki \
-  --disable-issues=false
-```
-
-まだ `git push` しない。先に deploy key を登録する。
-
-## 2. Deploy key（write）
-
-公開鍵: [`docs/deploy-key.pub`](deploy-key.pub)
-
-```
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBIP8vvOVWV/MSTuYv5Le6AAfPbRH954txhUUBT8PP3l deploy-key:MikanseiLaboratory/netaudio-rs
-```
-
-Fingerprint: `SHA256:Ik7bM6q7cxZutS5rMF2C4JwUsUlBrCqo/7rgMlFj1vQ`
-
-GitHub → repo Settings → Deploy keys → Add deploy key:
-
-- Title: `netaudio-rs cloud-agent`
-- Allow write access: **on**
-- 中身は `docs/deploy-key.pub`
-
-秘密鍵は git に入っていない。起動元が Cursor secret `NETAUDIO_DEPLOY_KEY`（OpenSSH private key）として渡すか、手元の `~/.ssh` に置く。
-
-```bash
-# secret から鍵を出す場合
-install -m 700 -d ~/.ssh
-printenv NETAUDIO_DEPLOY_KEY > ~/.ssh/netaudio-rs-deploy
-chmod 600 ~/.ssh/netaudio-rs-deploy
-ssh-keygen -y -f ~/.ssh/netaudio-rs-deploy > ~/.ssh/netaudio-rs-deploy.pub
-
-cat >> ~/.ssh/config << 'EOF'
-Host github.com-netaudio
-  HostName github.com
-  User git
-  IdentityFile ~/.ssh/netaudio-rs-deploy
-  IdentitiesOnly yes
-EOF
-
-git remote add origin git@github.com-netaudio:MikanseiLaboratory/netaudio-rs.git
-# すでに origin があるなら:
-# git remote set-url origin git@github.com-netaudio:MikanseiLaboratory/netaudio-rs.git
-
-GIT_SSH_COMMAND='ssh -i ~/.ssh/netaudio-rs-deploy -o IdentitiesOnly=yes' \
-  git push -u origin main
-```
-
-`gh` が使えるなら PAT / GitHub App で `gh repo create` したあと、push だけこの鍵でもよい。
-
-## 3. Issue を GitHub に載せる
-
-```bash
-gh issue create \
-  --repo MikanseiLaboratory/netaudio-rs \
-  --title "クロスプラットフォーム受信クレート — 技術要件と実装計画" \
-  --label rfc --label tracking \
-  --body-file docs/issues/001-rx-crate-plan.md
-```
-
-front matter の `title` / `labels` は `gh` が無視するので、上のとおり明示する。
-ラベルが無ければ先に作る:
+PAT / GitHub App で `issues: write` が付いたら、以下で GitHub に載せる。front matter の `title` / `labels` は `gh` が無視するので明示する。
 
 ```bash
 gh label create rfc --repo MikanseiLaboratory/netaudio-rs --description "Design / RFC" --color 0E8A16
 gh label create tracking --repo MikanseiLaboratory/netaudio-rs --description "Tracking" --color 5319E7
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "クロスプラットフォーム受信クレート — Inferno 準拠・Windows 第一級" \
+  --label rfc --label tracking \
+  --body-file docs/issues/001-rx-crate-plan.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "protocol 層 — ARC / CMC / flows-control / メディアヘッダの ser/de" \
+  --label enhancement \
+  --body-file docs/issues/002-protocol-codecs.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "プロセス内 overlay 時計 — PTPv1 listen-only とメディアパケット時刻" \
+  --label enhancement \
+  --body-file docs/issues/003-overlay-clock.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "プラットフォームソケット — IF 固定、multicast、mDNS 5353、PTP ポート" \
+  --label enhancement \
+  --body-file docs/issues/004-platform-sockets.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "制御面 — mDNS + ARC/CMC で Dante Controller に出す" \
+  --label enhancement \
+  --body-file docs/issues/005-control-plane.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "メディア RX — subscribe、リングバッファ、AudioBlock API" \
+  --label enhancement \
+  --body-file docs/issues/006-media-rx.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "TX — unicast 送信と tx_latency（最小 4 ms）" \
+  --label enhancement \
+  --body-file docs/issues/007-tx.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "cpal feature — 既存 OS デバイスへの再生とキャプチャ" \
+  --label enhancement \
+  --body-file docs/issues/008-cpal.md
+
+gh issue create --repo MikanseiLaboratory/netaudio-rs \
+  --title "オーディオホスト — ユーザー空間 ASIO / VST3（Later）" \
+  --label enhancement \
+  --body-file docs/issues/009-audio-host.md
 ```
 
-このリポジトリでは GitHub Issue をソースにしない。追加の計画は `docs/issues/00N-*.md` に足す。
+Markdown 内の `#002` などは GitHub 上で Issue 番号に読み替える。ファイル番号と Issue 番号を揃えること。
+
+## Deploy key
+
+公開鍵: [`docs/deploy-key.pub`](deploy-key.pub)
+
+Fingerprint: `SHA256:Ik7bM6q7cxZutS5rMF2C4JwUsUlBrCqo/7rgMlFj1vQ`
+
+GitHub → Settings → Deploy keys → `netaudio-rs cloud-agent`（write）。秘密鍵は git に入っていない。Cursor secret `NETAUDIO_DEPLOY_KEY` または手元の `~/.ssh`。
