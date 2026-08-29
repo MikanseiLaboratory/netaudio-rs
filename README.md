@@ -10,7 +10,9 @@ Dante is a trademark of Audinate Pty Ltd.
 
 ## Status
 
-Private R&D. See GitHub Issues for the technical plan.
+Private R&D. Plan is in [`docs/issues/001-rx-crate-plan.md`](docs/issues/001-rx-crate-plan.md) until a follow-up agent opens GitHub Issues.
+
+Follow-up (create private repo, register deploy key, push, open issues): [`docs/FOLLOWUP.md`](docs/FOLLOWUP.md).
 
 ## Non-goals (v1)
 

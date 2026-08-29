@@ -1,3 +1,8 @@
+---
+title: クロスプラットフォーム受信クレート — 技術要件と実装計画
+labels: rfc, tracking
+---
+
 # クロスプラットフォーム受信クレート — 技術要件と実装計画
 
 Inferno ([teodly/inferno](https://github.com/teodly/inferno)) の実装調査を踏まえた、本リポジトリの方針。

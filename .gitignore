@@ -3,3 +3,7 @@ Cargo.lock
 *.pdb
 .idea
 .vscode
+.secrets/
+*.pem
+id_ed25519
+id_rsa
