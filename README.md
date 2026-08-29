@@ -45,5 +45,3 @@ v1 is Phase 3: control plane + media RX + overlay clock locked to PTPv1.
 ## License
 
 MIT
-
-Cloud Agent git access: [`docs/deploy-key.md`](docs/deploy-key.md).
