@@ -1,7 +1,7 @@
 //! In-process media clock.
 //!
-//! Overlay over a local monotonic clock. Never steers the OS system clock.
-//! See the tracking issue for PTPv1 listen-only vs media-packet fallback.
+//! Overlay over `std::time::Instant` (QPC on Windows): shift + freq_scale.
+//! Sources: PTPv1 listen-only, then media-packet timestamps. See #4.
 
 #![allow(dead_code)]
 

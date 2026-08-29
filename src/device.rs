@@ -1,5 +1,5 @@
 //! Device facade: identity, lifecycle, RX subscription.
 //!
-//! Applications talk to this module, not to protocol sockets.
+//! Application-facing API. Sockets and codecs stay in `media` / `protocol`.
 
 #![allow(dead_code)]
