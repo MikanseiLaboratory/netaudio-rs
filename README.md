@@ -10,7 +10,7 @@ This project is unofficial and independent of Audinate. Dante is a trademark of 
 
 ## Status
 
-Private R&D. The plan lives in GitHub Issues; [`docs/issues/`](docs/issues/README.md) is the same write-up.
+Private R&D. The plan is in GitHub Issues.
 
 | GitHub | Topic |
 | --- | --- |
