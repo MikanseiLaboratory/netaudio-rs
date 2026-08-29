@@ -193,7 +193,7 @@ Do not bump edition. Do not enable `cpal` by default.
 name = "netaudio"
 version = "0.0.0"
 edition = "2021"
-rust-version = "1.74"
+rust-version = "1.85"
 license = "MIT"
 publish = false
 
@@ -207,7 +207,7 @@ polling = "3"
 netdev = "0.32"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_Networking_WinSock", "Win32_System_Threading"] }
+windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_Threading"] }
 
 [dev-dependencies]
 hex = "0.4"
