@@ -12,13 +12,13 @@ categories = ["multimedia::audio", "network-programming"]
 repository = "https://github.com/MikanseiLaboratory/netaudio-rs"
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
-log = "0.4"
-thiserror = "2"
-socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1.53", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
+log = "0.4.34"
+thiserror = "2.0"
+socket2 = { version = "0.6", features = ["all"] }
 byteorder = "1.5"
-polling = "3"
-netdev = "0.32"
+polling = "3.11"
+netdev = "0.46"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_Threading"] }
@@ -27,8 +27,7 @@ windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32
 hex = "0.4"
 clap = { version = "4.6", features = ["derive"] }
 env_logger = "0.11"
-netdev = "0.32"
-tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread", "signal"] }
+tokio = { version = "1.53", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread", "signal"] }
 
 [[example]]
 name = "rx"

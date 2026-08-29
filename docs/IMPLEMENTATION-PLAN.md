@@ -82,7 +82,7 @@ Four specialist reviews (protocol, clock/media, sockets/mDNS, API) found these m
 | Media RX port | Bind in advertised range `0x3800..=0x397F`. If busy, try next port in range; last resort ephemeral (still report actual port in `0x3200`). |
 | PTP I/O | Dedicated **clock thread** (recv 319/320, timestamp `t2` immediately). Not tokio. Overlay published via seqlock. |
 | `thiserror` | 2.x |
-| `socket2` | 0.5 with feature `all` (Unix `SO_REUSEPORT`). |
+| `socket2` | 0.6 with feature `all` (Unix `SO_REUSEPORT`). |
 
 ---
 
@@ -198,20 +198,21 @@ license = "MIT"
 publish = false
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
-log = "0.4"
-thiserror = "2"
-socket2 = { version = "0.5", features = ["all"] }
+tokio = { version = "1.53", default-features = false, features = ["net", "time", "sync", "macros", "rt"] }
+log = "0.4.34"
+thiserror = "2.0"
+socket2 = { version = "0.6", features = ["all"] }
 byteorder = "1.5"
-polling = "3"
-netdev = "0.32"
+polling = "3.11"
+netdev = "0.46"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_Threading"] }
 
 [dev-dependencies]
 hex = "0.4"
-tokio = { version = "1", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread"] }
+clap = { version = "4.6", features = ["derive"] }
+tokio = { version = "1.53", features = ["net", "time", "sync", "macros", "rt", "rt-multi-thread"] }
 
 [features]
 default = []
@@ -221,12 +222,12 @@ cpal = []
 | Slot | Choice | Why |
 | --- | --- | --- |
 | async control | tokio 1 (already in crate) | timeouts, cancel, UDP |
-| sockets | socket2 0.5 `all` | IF bind, reuse, multicast, Windows |
+| sockets | socket2 0.6 `all` | IF bind, reuse, multicast, Windows |
 | media poll | polling 3 | epoll/kqueue/IOCP, no mio |
 | bytes | byteorder + internal `BeBuf` | explicit layouts, fixture-friendly |
 | log | log 0.4 | app picks backend |
 | errors | thiserror 2 | typed public errors |
-| NIC | netdev 0.32 | Win friendly name, MAC, mask, gateway |
+| NIC | netdev 0.46 | Win friendly name, MAC, mask, gateway |
 | WinSock extras | windows-sys | `SO_EXCLUSIVEADDRUSE`, `SIO_UDP_CONNRESET`, thread priority |
 | mDNS | original responder | Dante TXT + empty records + IF bind |
 | clock | `std::time::Instant` overlay | QPC on Windows; no daemon |
