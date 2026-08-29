@@ -1,3 +1,5 @@
-//! Media plane: flow sockets, keepalives, timestamped ring buffer, sample API.
+//! Media plane: timestamped ring and RX thread.
 
-#![allow(dead_code)]
+pub mod keepalive;
+pub mod ring;
+pub mod rx;
