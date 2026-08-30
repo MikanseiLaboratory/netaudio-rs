@@ -52,3 +52,104 @@ pub fn disable_udp_connreset(sock: &std::net::UdpSocket) -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// Best-effort inbound allow for this process. DVS installer does this;
+/// without it Windows drops unicast media from TX source ports we cannot know.
+pub fn try_allow_inbound_udp() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let program = format!("program={}", exe.display());
+    match std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            "name=netaudio-rs",
+            "dir=in",
+            "action=allow",
+            program.as_str(),
+            "enable=yes",
+            "profile=any",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            eprintln!("firewall inbound UDP allow for {}", exe.display());
+            log::info!("Windows Firewall inbound allow for {}", exe.display());
+        }
+        Ok(o) => {
+            let msg = String::from_utf8_lossy(&o.stderr);
+            let msg = msg.trim();
+            if msg.is_empty() {
+                eprintln!("firewall rule netaudio-rs already present");
+                log::info!("Windows Firewall rule netaudio-rs already present");
+            } else {
+                eprintln!("firewall {msg}; allow inbound UDP for {}", exe.display());
+                log::warn!(
+                    "Windows Firewall: {msg}; allow inbound UDP for {}",
+                    exe.display()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("firewall netsh: {e}");
+            log::warn!("Windows Firewall netsh: {e}");
+        }
+    }
+    try_allow_udp_ports("netaudio-rs-ptp", "319,320");
+    try_allow_udp_ports("netaudio-rs-media", "14336-14591");
+    try_allow_udp_ports_remote("netaudio-rs-ptp-mcast", "319,320", "224.0.1.129");
+}
+
+fn try_allow_udp_ports(name: &str, localport: &str) {
+    match std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &format!("name={name}"),
+            "dir=in",
+            "action=allow",
+            "protocol=UDP",
+            &format!("localport={localport}"),
+            "enable=yes",
+            "profile=any",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            log::info!("Windows Firewall inbound UDP {localport}");
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("Windows Firewall {name}: {e}"),
+    }
+}
+
+fn try_allow_udp_ports_remote(name: &str, localport: &str, remoteip: &str) {
+    match std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &format!("name={name}"),
+            "dir=in",
+            "action=allow",
+            "protocol=UDP",
+            &format!("localport={localport}"),
+            &format!("remoteip={remoteip}"),
+            "enable=yes",
+            "profile=any",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            log::info!("Windows Firewall inbound UDP {localport} from {remoteip}");
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("Windows Firewall {name}: {e}"),
+    }
+}

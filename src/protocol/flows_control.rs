@@ -12,6 +12,18 @@ pub const OP_UPDATE: u16 = 0x0102;
 pub const ERR_EXPIRED: u16 = 0x0103;
 pub const ERR_TOO_MANY: u16 = 0x0315;
 pub const ERR_RATE: u16 = 0x0301;
+/// Inferno TX: bad channel index or fpp above the device max.
+pub const ERR_BAD_REQUEST: u16 = 0x0302;
+/// TX rejected fpp / bit depth / channel list (observed on hardware 0x0100 replies).
+pub const ERR_PARAMS: u16 = 0x0314;
+
+/// Advertised in ARC 0x1000. Inferno chunks a TX into flows of this width.
+pub const MAX_CHANNELS_IN_FLOW: usize = 8;
+/// Audinate unicast flows are 4 channels (empty slots padded with 0). DVS TXT
+/// `nchan=8` is not the unicast flow width.
+pub const DANTE_UNICAST_CHANNELS: usize = 4;
+/// Inferno `MAX_PAYLOAD_BYTES`: cap fpp so PCM fits one UDP datagram.
+pub const MAX_PAYLOAD_BYTES: usize = 1400;
 
 pub type FlowHandle = [u8; 6];
 
@@ -92,6 +104,20 @@ pub fn parse_handle(content: &[u8]) -> Option<FlowHandle> {
     Some(h)
 }
 
+/// Optional TX media UDP after the 6-byte handle (index+cookie). Cookie is not a port.
+pub fn parse_tx_media_port(content: &[u8]) -> Option<u16> {
+    if content.len() < 8 {
+        return None;
+    }
+    for chunk in content[6..].chunks_exact(2) {
+        let p = u16::from_be_bytes([chunk[0], chunk[1]]);
+        if (0x3800..=0x39FF).contains(&p) || (34_336..=34_600).contains(&p) {
+            return Some(p);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +143,40 @@ mod tests {
         assert_eq!(h.start_code, START_CODE);
         assert_eq!(h.opcode1, OP_REQUEST);
         assert_eq!(h.total_length, 0x50);
+    }
+
+    #[test]
+    fn request_flow_socket_matches_args() {
+        let pkt = encode_request_flow(
+            1,
+            48_000,
+            24,
+            48,
+            &[1, 0, 0, 0],
+            "akizuki-test-rx",
+            "1_42",
+            60077,
+            [192, 168, 3, 24],
+        );
+        let (_, content) = req_resp::decode(&pkt).unwrap();
+        assert_eq!(u16::from_be_bytes(content[12..14].try_into().unwrap()), 4);
+        let needle = {
+            let mut v = vec![0x08, 0x02];
+            v.extend_from_slice(&60077u16.to_be_bytes());
+            v.extend_from_slice(&[192, 168, 3, 24]);
+            v
+        };
+        assert!(
+            pkt.windows(needle.len()).any(|w| w == needle),
+            "missing 0x0802 socket in {}",
+            hex::encode(&pkt)
+        );
+    }
+
+    #[test]
+    fn dvs_handle_cookie_is_not_a_media_port() {
+        let content = hex::decode("000100017c4f0001000100000000").unwrap();
+        assert_eq!(parse_handle(&content).unwrap()[..6], [0, 1, 0, 1, 0x7c, 0x4f]);
+        assert_eq!(parse_tx_media_port(&content), None);
     }
 }

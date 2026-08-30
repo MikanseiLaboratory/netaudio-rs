@@ -22,7 +22,7 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 /// Ports actually bound by a running [`Device`].
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +91,11 @@ pub(crate) struct Shared {
     pub flows_seq: AtomicU16,
     pub subscribe_override: Mutex<Option<(Ipv4Addr, u16)>>,
     pub info_tx: tokio::sync::mpsc::UnboundedSender<info_mcast::InfoEvent>,
+    pub sub_wake: Notify,
+    pub sub_pending: AtomicBool,
+    pub mdns_tx: Mutex<Option<std::sync::mpsc::Sender<crate::net::mdns::MdnsQuery>>>,
+    /// TX IPv4s to unicast PTPv1 Delay_Req (DVS ptp.exe is 0.0.0.0:319).
+    pub ptp_unicast: Mutex<Vec<Ipv4Addr>>,
 }
 
 /// Running receive device. `Send + Sync`. One instance per [`Device::start`].
@@ -121,6 +126,14 @@ impl Device {
             .subscribe_override
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some((ipv4, flows_port));
+        let mut peers = self
+            .shared
+            .ptp_unicast
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !peers.contains(&ipv4) {
+            peers.push(ipv4);
+        }
     }
 
     async fn start_inner(settings: Settings, mdns: bool, ptp: bool) -> Result<Self, Error> {
@@ -158,20 +171,8 @@ impl Device {
                 ]
             }
         });
-        let (arc_port, cmc_port, flows_port, info_port) = match settings.alt_port {
-            Some(a) => (
-                a,
-                a.saturating_add(1),
-                a.saturating_add(2),
-                a.saturating_add(3),
-            ),
-            None => (
-                proto_ports::ARC,
-                proto_ports::CMC,
-                proto_ports::FLOWS_CONTROL,
-                proto_ports::INFO_BIND,
-            ),
-        };
+        let control_socks = udp::bind_control_ports(ip, settings.alt_port)?;
+        let (arc_port, cmc_port, flows_port, info_port) = control_socks.ports;
         let friendly = settings.name.clone();
         let hex_id = hex_id(&device_id);
         let mut factory = format!("netaudio-{hex_id}");
@@ -222,11 +223,17 @@ impl Device {
             flows_seq: AtomicU16::new(1),
             subscribe_override: Mutex::new(None),
             info_tx,
+            sub_wake: Notify::new(),
+            sub_pending: AtomicBool::new(false),
+            mdns_tx: Mutex::new(None),
+            ptp_unicast: Mutex::new(Vec::new()),
         });
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let mdns_handle = if mdns {
+            #[cfg(windows)]
+            crate::net::windows::try_allow_inbound_udp();
             Some(MdnsAnnouncer::start(shared.clone())?)
         } else {
             None
@@ -251,8 +258,14 @@ impl Device {
         let mut control_shutdown = shutdown_rx.clone();
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let control = tokio::spawn(async move {
-            if let Err(e) =
-                run_control(control_shared, info_rx, ready_tx, &mut control_shutdown).await
+            if let Err(e) = run_control(
+                control_shared,
+                info_rx,
+                ready_tx,
+                &mut control_shutdown,
+                control_socks,
+            )
+            .await
             {
                 log::error!("control plane error: {e}");
             }
@@ -276,6 +289,16 @@ impl Device {
             control: Some(control),
             ptp: ptp_handle,
         })
+    }
+
+    /// Sample rate configured at [`Device::start`] (Hz).
+    pub fn sample_rate(&self) -> u32 {
+        self.shared.settings.sample_rate
+    }
+
+    /// Receive channel count configured at [`Device::start`].
+    pub fn rx_channels(&self) -> u16 {
+        self.shared.settings.rx_channels
     }
 
     pub fn try_read(&self, dst: &mut AudioFrameMut<'_>) -> Result<usize, Error> {
@@ -389,33 +412,24 @@ async fn run_control(
     info_rx: tokio::sync::mpsc::UnboundedReceiver<info_mcast::InfoEvent>,
     ready: tokio::sync::oneshot::Sender<Result<(), Error>>,
     shutdown: &mut watch::Receiver<bool>,
+    socks: udp::ControlSockets,
 ) -> Result<(), Error> {
     let ip = shared.identity.ip;
-    let bind = |port, role| match udp::bind_unicast(ip, port, role) {
-        Ok(s) => udp::std_to_tokio(s),
-        Err(e) => Err(e),
-    };
-    let arc_sock = match bind(shared.identity.arc_port, "arc") {
+    let arc_sock = match udp::std_to_tokio(socks.arc) {
         Ok(s) => s,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Ok(());
         }
     };
-    let cmc_sock = match bind(shared.identity.cmc_port, "cmc") {
+    let cmc_sock = match udp::std_to_tokio(socks.cmc) {
         Ok(s) => s,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Ok(());
         }
     };
-    let info_sock = match udp::bind_unicast(ip, shared.identity.info_port, "info") {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = ready.send(Err(e));
-            return Ok(());
-        }
-    };
+    let info_sock = socks.info;
     if let Err(e) = udp::set_multicast_if_v4(&info_sock, ip) {
         let _ = ready.send(Err(e));
         return Ok(());
@@ -444,12 +458,18 @@ async fn run_control(
         let mut sd = shutdown.clone();
         tokio::spawn(async move { info_mcast::run(shared, info_sock, info_rx, &mut sd).await })
     };
+    let sub_task = {
+        let shared = shared.clone();
+        let sd = shutdown.clone();
+        tokio::spawn(async move { subscribe::run(shared, sd).await })
+    };
     let _ = ready.send(Ok(()));
 
     let _ = shutdown.changed().await;
     arc_task.abort();
     cmc_task.abort();
     info_task.abort();
+    sub_task.abort();
     Ok(())
 }
 

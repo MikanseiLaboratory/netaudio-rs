@@ -12,10 +12,13 @@ pub(crate) mod media;
 pub(crate) mod net;
 pub(crate) mod protocol;
 
+#[cfg(feature = "cpal")]
+pub mod play;
+
 /// Left-justified PCM sample at the crate boundary.
 ///
 /// Dante payloads are 16/24/32-bit big-endian integer. Unused LSBs are zero
-/// (left-justified `i32`). See `docs/IMPLEMENTATION-PLAN.md` §11.4.
+/// (left-justified `i32`).
 pub type Sample = i32;
 
 pub use device::{

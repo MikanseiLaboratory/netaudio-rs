@@ -12,6 +12,7 @@ pub struct IfaceInfo {
     pub gateway: Ipv4Addr,
     pub mac: [u8; 6],
     pub link_mbps: u16,
+    pub if_index: u32,
 }
 
 pub fn resolve(bind: &Bind) -> Result<IfaceInfo, Error> {
@@ -50,6 +51,7 @@ fn find_by_ip(ip: Ipv4Addr) -> Result<IfaceInfo, Error> {
         gateway: Ipv4Addr::UNSPECIFIED,
         mac: [0; 6],
         link_mbps: 0,
+        if_index: 0,
     })
 }
 
@@ -111,6 +113,7 @@ fn from_netdev(iface: &netdev::Interface, ipv4: Ipv4Addr, netmask: Ipv4Addr) -> 
         gateway,
         mac,
         link_mbps: speed.clamp(0, 10_000) as u16,
+        if_index: iface.index,
     }
 }
 
@@ -122,5 +125,6 @@ fn loopback(ip: Ipv4Addr) -> IfaceInfo {
         gateway: Ipv4Addr::UNSPECIFIED,
         mac: [0; 6],
         link_mbps: 0,
+        if_index: 1,
     }
 }

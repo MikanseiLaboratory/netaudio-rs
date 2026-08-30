@@ -1,8 +1,12 @@
-//! IEEE 1588-2002 (PTPv1) header parse. Listen-only.
+//! IEEE 1588-2002 (PTPv1) header parse and Delay_Req encode.
 
 pub const HEADER_LEN: usize = 40;
+pub const DELAY_REQ_LEN: usize = 124;
 pub const CONTROL_SYNC: u8 = 0;
+pub const CONTROL_DELAY_REQ: u8 = 1;
 pub const CONTROL_FOLLOW_UP: u8 = 2;
+pub const CONTROL_DELAY_RESP: u8 = 3;
+pub const MESSAGE_DELAY_REQ: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PtpHeader {
@@ -79,6 +83,37 @@ pub fn subdomain_matches(got: &[u8; 16], want: &[u8; 16]) -> bool {
     got == want
 }
 
+pub fn subdomain_label(s: &[u8; 16]) -> String {
+    let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
+    String::from_utf8_lossy(&s[..end]).into_owned()
+}
+
+/// Delay_Req. Copy a received Sync when present so technology / flags match Dante.
+pub fn encode_delay_req(
+    subdomain: &[u8; 16],
+    uuid: [u8; 6],
+    seq: u16,
+    template: Option<&[u8]>,
+) -> Vec<u8> {
+    let mut p = vec![0u8; DELAY_REQ_LEN];
+    if let Some(t) = template {
+        let n = t.len().min(DELAY_REQ_LEN);
+        p[..n].copy_from_slice(&t[..n]);
+    } else {
+        p[2..4].copy_from_slice(&1u16.to_be_bytes());
+        p[21] = 1;
+        p[28..30].copy_from_slice(&1u16.to_be_bytes());
+    }
+    p[0..2].copy_from_slice(&1u16.to_be_bytes());
+    p[4..20].copy_from_slice(subdomain);
+    p[20] = MESSAGE_DELAY_REQ;
+    p[22..28].copy_from_slice(&uuid);
+    p[30..32].copy_from_slice(&seq.to_be_bytes());
+    p[32] = CONTROL_DELAY_REQ;
+    p[40..48].fill(0);
+    p
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +137,20 @@ mod tests {
         assert_eq!(h.control, CONTROL_SYNC);
         let ts = origin_timestamp(&p).unwrap();
         assert_eq!(ts.as_ns(), 1_500_000_000);
+    }
+
+    #[test]
+    fn delay_req_is_v1_control_1() {
+        let mut sub = [0u8; 16];
+        sub[..5].copy_from_slice(b"_DFLT");
+        let uuid = [0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f];
+        let p = encode_delay_req(&sub, uuid, 7, None);
+        assert_eq!(p.len(), DELAY_REQ_LEN);
+        let h = decode_header(&p).unwrap();
+        assert_eq!(h.control, CONTROL_DELAY_REQ);
+        assert_eq!(h.sequence_id, 7);
+        assert_eq!(h.source_uuid, uuid);
+        assert_eq!(h.subdomain, sub);
+        assert_eq!(p[20], MESSAGE_DELAY_REQ);
     }
 }

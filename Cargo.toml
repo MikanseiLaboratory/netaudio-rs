@@ -19,6 +19,7 @@ socket2 = { version = "0.6", features = ["all"] }
 byteorder = "1.5"
 polling = "3.11"
 netdev = "0.46"
+cpal = { version = "0.18.2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock", "Win32_System_IO", "Win32_System_Threading"] }
@@ -32,10 +33,11 @@ tokio = { version = "1.53", features = ["net", "time", "sync", "macros", "rt", "
 [[example]]
 name = "rx"
 path = "examples/rx.rs"
+required-features = ["cpal"]
 
 [features]
 default = []
-# Planned: play/capture on existing WASAPI / CoreAudio / ALSA / ASIO host devices.
-cpal = []
+# OS default playback (WASAPI / CoreAudio / ALSA).
+cpal = ["dep:cpal"]
 # Test doubles and Device::start_for_test (skip mDNS/PTP binds).
 test-util = []

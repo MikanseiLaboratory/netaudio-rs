@@ -30,13 +30,18 @@ pub fn settings_loopback(name: &str, alt: u16) -> Settings {
 }
 
 pub async fn start_device(name: &str) -> Device {
+    start_device_with(name, 1).await
+}
+
+pub async fn start_device_with(name: &str, rx_channels: u16) -> Device {
     let base = 20_000u16 + (std::process::id() as u16 % 2_000) * 4;
     for i in 0..40u16 {
         let alt = base.saturating_add(i.saturating_mul(4));
         if alt > 65_000 {
             break;
         }
-        let s = settings_loopback(name, alt);
+        let mut s = settings_loopback(name, alt);
+        s.rx_channels = rx_channels;
         match Device::start_for_test(s).await {
             Ok(d) => return d,
             Err(Error::PortInUse { .. }) => continue,

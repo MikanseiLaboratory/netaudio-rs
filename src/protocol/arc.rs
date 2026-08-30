@@ -448,4 +448,16 @@ mod tests {
         assert_eq!(recs[0].local_id, 1);
         assert!(recs[0].tx_channel.is_none());
     }
+
+    #[test]
+    fn subscribe_count_two() {
+        let mut content = vec![2u8, 2];
+        content.extend_from_slice(&[0, 1, 0, 0, 0, 0]);
+        content.extend_from_slice(&[0, 2, 0, 0, 0, 0]);
+        let pkt = req_resp::encode(0x2729, 1, OP_SUBSCRIBE, 0, &content);
+        let recs = parse_subscribe(&pkt, req_resp::decode(&pkt).unwrap().1);
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].local_id, 1);
+        assert_eq!(recs[1].local_id, 2);
+    }
 }

@@ -143,7 +143,7 @@ fn encode_rx_flows_page(shared: &Shared, hdr: Header, content: &[u8]) -> Vec<u8>
             flow_id: f.flow_id,
             sample_rate: f.sample_rate,
             bits: f.bits,
-            channels: f.channels.clone(),
+            channels: f.channels(),
             port: f.port,
             ip: f.ip,
             latency_ns: f.latency_ns,
