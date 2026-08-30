@@ -120,12 +120,44 @@ fn reject(ip: Ipv4Addr) -> Result<(), Error> {
     }
 }
 
+fn bind_denied(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::AddrInUse
+        || e.kind() == std::io::ErrorKind::PermissionDenied
+        || matches!(e.raw_os_error(), Some(10013 | 10048))
+}
+
 fn map_in_use(e: std::io::Error, port: u16, role: &'static str) -> Error {
-    if e.kind() == std::io::ErrorKind::AddrInUse {
-        Error::PortInUse { port, role }
-    } else if e.kind() == std::io::ErrorKind::PermissionDenied && (port == 319 || port == 320) {
+    if bind_denied(&e) && (port == 319 || port == 320) {
         Error::PtpBindDenied { port }
+    } else if bind_denied(&e) {
+        Error::PortInUse { port, role }
     } else {
         Error::Io(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn access_denied_on_arc_is_port_in_use() {
+        let e = std::io::Error::from_raw_os_error(10013);
+        match map_in_use(e, 4440, "arc") {
+            Error::PortInUse {
+                port: 4440,
+                role: "arc",
+            } => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn access_denied_on_ptp_is_ptp_bind_denied() {
+        let e = std::io::Error::from_raw_os_error(10013);
+        match map_in_use(e, 319, "ptp") {
+            Error::PtpBindDenied { port: 319 } => {}
+            other => panic!("{other:?}"),
+        }
     }
 }

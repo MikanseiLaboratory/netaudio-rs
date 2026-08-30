@@ -14,7 +14,7 @@ pub enum Error {
     InterfaceNotFound { name: String },
     #[error("interface {name} has no usable IPv4 address")]
     InterfaceHasNoIpv4 { name: String },
-    #[error("UDP port {port} in use ({role})")]
+    #[error("UDP port {port} in use or reserved ({role})")]
     PortInUse { port: u16, role: &'static str },
     #[error("mDNS UDP 5353 is in use or not shareable on this host")]
     MdnsPortInUse,

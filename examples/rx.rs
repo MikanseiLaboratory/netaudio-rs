@@ -320,6 +320,11 @@ async fn main() {
 
     if let Err(err) = result {
         eprintln!("error: {err}");
+        if matches!(err, netaudio::Error::PortInUse { .. }) {
+            eprintln!(
+                "hint: WindowsではHyper-VがUDPを予約することがあります。`netsh interface ipv4 show excludedportrange protocol=udp` を見て `--alt-port`でずらしてください。"
+            );
+        }
         std::process::exit(1);
     }
 }
