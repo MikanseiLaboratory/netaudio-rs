@@ -127,4 +127,30 @@ mod tests {
         assert_eq!(h.opcode1, OP_REQUEST);
         assert_eq!(h.total_length, 0x50);
     }
+
+    #[test]
+    fn request_flow_socket_matches_args() {
+        let pkt = encode_request_flow(
+            1,
+            48_000,
+            24,
+            48,
+            &[1],
+            "akizuki-test-rx",
+            "1_42",
+            60077,
+            [192, 168, 3, 24],
+        );
+        let needle = {
+            let mut v = vec![0x08, 0x02];
+            v.extend_from_slice(&60077u16.to_be_bytes());
+            v.extend_from_slice(&[192, 168, 3, 24]);
+            v
+        };
+        assert!(
+            pkt.windows(needle.len()).any(|w| w == needle),
+            "missing 0x0802 socket in {}",
+            hex::encode(&pkt)
+        );
+    }
 }

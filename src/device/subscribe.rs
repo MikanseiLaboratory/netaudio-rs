@@ -528,6 +528,72 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         .iter()
         .map(|id| id.map(|n| n as usize - 1))
         .collect();
+
+    let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
+    let pkt = flows_control::encode_request_flow(
+        seq,
+        shared.settings.sample_rate,
+        first_bits,
+        fpp,
+        &tx_ids,
+        &shared.identity.friendly_hostname,
+        &flow_name,
+        rx_port,
+        shared.identity.ip.octets(),
+    );
+    log::info!(
+        "0x0100 {} <- {}:{} ids={:?} rate={} bits={} fpp={}",
+        first_addr,
+        shared.identity.ip,
+        rx_port,
+        tx_ids,
+        shared.settings.sample_rate,
+        first_bits,
+        fpp
+    );
+    let media = match udp::std_to_tokio(media) {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("media tokio: {e}");
+            for slot in live_slots.iter().flatten() {
+                set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
+            }
+            return;
+        }
+    };
+    let handle =
+        match send_opcode_sock(&media, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
+            Ok(h) => h,
+            Err(e) => {
+                log::warn!("flows-control 0x0100: {e}");
+                for (idx, _) in &still {
+                    set_status(shared, *idx, arc::STATUS_UNRESOLVED);
+                }
+                {
+                    let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
+                    for (idx, _) in &still {
+                        if *idx < subs.len() && subs[*idx].flow_id == Some(flow_id) {
+                            subs[*idx].flow_id = None;
+                        }
+                    }
+                }
+                return;
+            }
+        };
+    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
+    let media = match media.into_std() {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("media into_std: {e}");
+            for slot in live_slots.iter().flatten() {
+                set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
+            }
+            return;
+        }
+    };
+    if let Err(e) = udp::prepare_media(&media) {
+        log::warn!("media sockopt: {e}");
+    }
     if shared
         .media_tx
         .send(MediaCommand::AddFlow {
@@ -546,49 +612,6 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         }
         return;
     }
-
-    let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
-    let pkt = flows_control::encode_request_flow(
-        seq,
-        shared.settings.sample_rate,
-        first_bits,
-        fpp,
-        &tx_ids,
-        &shared.identity.friendly_hostname,
-        &flow_name,
-        rx_port,
-        shared.identity.ip.octets(),
-    );
-    log::info!(
-        "0x0100 {} ids={:?} rate={} bits={} fpp={}",
-        first_addr,
-        tx_ids,
-        shared.settings.sample_rate,
-        first_bits,
-        fpp
-    );
-    let handle = match send_opcode(shared, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
-        Ok(h) => h,
-        Err(e) => {
-            log::warn!("flows-control 0x0100: {e}");
-            let _ = shared
-                .media_tx
-                .send(MediaCommand::RemoveFlow { id: flow_id });
-            for (idx, _) in &still {
-                set_status(shared, *idx, arc::STATUS_UNRESOLVED);
-            }
-            {
-                let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
-                for (idx, _) in &still {
-                    if *idx < subs.len() && subs[*idx].flow_id == Some(flow_id) {
-                        subs[*idx].flow_id = None;
-                    }
-                }
-            }
-            return;
-        }
-    };
-    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
 
     {
         let mut flows = shared.rx_flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -885,7 +908,10 @@ fn flow_width(rx_channels: usize, tx_nchan: usize, needed: usize, unconstrained:
     if unconstrained {
         return needed.min(MAX_CHANNELS_IN_FLOW);
     }
-    tx_nchan.min(rx_channels).clamp(1, MAX_CHANNELS_IN_FLOW)
+    needed
+        .min(tx_nchan)
+        .min(rx_channels)
+        .clamp(1, MAX_CHANNELS_IN_FLOW)
 }
 
 fn choose_fpp(nchan: usize, bytes: usize, advertised_max: u16) -> u16 {
@@ -937,6 +963,16 @@ async fn send_opcode(
 ) -> Result<Option<FlowHandle>, FcErr> {
     let sock = udp::std_to_tokio(udp::bind_querier(shared.identity.ip).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
+    send_opcode_sock(&sock, dest, seq, opcode1, pkt).await
+}
+
+async fn send_opcode_sock(
+    sock: &tokio::net::UdpSocket,
+    dest: SocketAddrV4,
+    seq: u16,
+    opcode1: u16,
+    pkt: &[u8],
+) -> Result<Option<FlowHandle>, FcErr> {
     sock.send_to(pkt, SocketAddr::V4(dest))
         .await
         .map_err(|e| e.to_string())?;
@@ -952,7 +988,6 @@ async fn send_opcode(
             .map_err(|_| "flows-control timeout".to_string())?
             .map_err(|e| e.to_string())?;
         let Some((h, content)) = req_resp::decode(&buf[..rec.0]) else {
-            log::warn!("bad flows-control datagram");
             continue;
         };
         if h.seqnum != seq || h.opcode1 != opcode1 {
@@ -1019,10 +1054,10 @@ mod tests {
     }
 
     #[test]
-    fn width_follows_inferno_cap() {
-        assert_eq!(flow_width(2, 64, 1, false), 2);
+    fn width_is_subscribed_count() {
+        assert_eq!(flow_width(2, 64, 1, false), 1);
         assert_eq!(flow_width(2, 64, 2, false), 2);
-        assert_eq!(flow_width(8, 8, 2, false), 8);
+        assert_eq!(flow_width(8, 8, 2, false), 2);
         assert_eq!(flow_width(8, 2, 2, false), 2);
         assert_eq!(flow_width(8, 8, 8, false), 8);
     }
