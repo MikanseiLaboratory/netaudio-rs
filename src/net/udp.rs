@@ -5,41 +5,48 @@ use crate::protocol::ports as p;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket as StdUdp};
 
-/// Resolve ARC / CMC / flows-control dest / info ports.
-///
-/// `None` tries the Dante defaults, then a free 4-port block.
-/// `Some(base)` is exact (`base`..=`base+3`) and fails if any is busy.
-pub fn pick_control_ports(
-    ip: Ipv4Addr,
-    requested: Option<u16>,
-) -> Result<(u16, u16, u16, u16), Error> {
+/// Bound ARC / CMC / info sockets plus the four logical control ports.
+pub struct ControlSockets {
+    pub arc: StdUdp,
+    pub cmc: StdUdp,
+    pub info: StdUdp,
+    pub ports: (u16, u16, u16, u16),
+}
+
+/// Bind ARC / CMC / info. `None` tries Dante defaults, then a free 4-port block.
+/// `Some(base)` is exact (`base`, `base+1`, `base+3`) and fails if any is busy.
+pub fn bind_control_ports(ip: Ipv4Addr, requested: Option<u16>) -> Result<ControlSockets, Error> {
     if let Some(base) = requested {
-        let block = port_block(base)?;
-        reserve_block(ip, block)?;
-        return Ok(block);
+        return bind_triple(ip, port_block(base)?);
     }
     let defaults = (p::ARC, p::CMC, p::FLOWS_CONTROL, p::INFO_BIND);
-    if reserve_block(ip, defaults).is_ok() {
-        return Ok(defaults);
+    if let Ok(bound) = bind_triple(ip, defaults) {
+        return Ok(bound);
     }
     for base in control_base_candidates() {
         let Ok(block) = port_block(base) else {
             continue;
         };
-        if reserve_block(ip, block).is_ok() {
+        if let Ok(bound) = bind_triple(ip, block) {
             log::warn!(
                 "default control ports unavailable; using ARC {} CMC {} info {}",
-                block.0,
-                block.1,
-                block.3
+                bound.ports.0,
+                bound.ports.1,
+                bound.ports.3
             );
-            return Ok(block);
+            return Ok(bound);
         }
     }
     Err(Error::PortInUse {
         port: p::ARC,
         role: "arc",
     })
+}
+
+/// Numbers only (sockets dropped). Used by tests.
+#[cfg(test)]
+fn pick_control_ports(ip: Ipv4Addr, requested: Option<u16>) -> Result<(u16, u16, u16, u16), Error> {
+    Ok(bind_control_ports(ip, requested)?.ports)
 }
 
 fn port_block(base: u16) -> Result<(u16, u16, u16, u16), Error> {
@@ -73,40 +80,58 @@ fn control_base_candidates() -> impl Iterator<Item = u16> {
         .filter(|&base| !overlaps_fixed_or_media(base))
 }
 
-/// Bind all four then drop, so a later `bind_unicast` can take them.
-fn reserve_block(ip: Ipv4Addr, block: (u16, u16, u16, u16)) -> Result<(), Error> {
-    let a = bind_unicast(ip, block.0, "arc")?;
-    let c = match bind_unicast(ip, block.1, "cmc") {
+fn bind_triple(ip: Ipv4Addr, block: (u16, u16, u16, u16)) -> Result<ControlSockets, Error> {
+    let arc = bind_unicast(ip, block.0, "arc")?;
+    let cmc = match bind_unicast(ip, block.1, "cmc") {
         Ok(s) => s,
         Err(e) => {
-            drop(a);
-            return Err(e);
-        }
-    };
-    let f = match bind_unicast(ip, block.2, "flows") {
-        Ok(s) => s,
-        Err(e) => {
-            drop((a, c));
+            drop(arc);
             return Err(e);
         }
     };
     match bind_unicast(ip, block.3, "info") {
-        Ok(i) => {
-            drop((a, c, f, i));
-            Ok(())
-        }
+        Ok(info) => Ok(ControlSockets {
+            arc,
+            cmc,
+            info,
+            ports: block,
+        }),
         Err(e) => {
-            drop((a, c, f));
+            drop((arc, cmc));
             Err(e)
         }
     }
 }
 
 pub fn bind_unicast(ip: Ipv4Addr, port: u16, role: &'static str) -> Result<StdUdp, Error> {
+    match bind_unicast_inner(ip, port, role, true) {
+        Ok(s) => Ok(s),
+        Err(Error::PortInUse { port, role }) => {
+            #[cfg(windows)]
+            {
+                bind_unicast_inner(ip, port, role, false)
+            }
+            #[cfg(not(windows))]
+            {
+                Err(Error::PortInUse { port, role })
+            }
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn bind_unicast_inner(
+    ip: Ipv4Addr,
+    port: u16,
+    role: &'static str,
+    #[cfg_attr(not(windows), allow(unused_variables))] exclusive: bool,
+) -> Result<StdUdp, Error> {
     reject(ip)?;
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     #[cfg(windows)]
-    crate::net::windows::set_exclusive_addr_use(&sock)?;
+    if exclusive {
+        crate::net::windows::set_exclusive_addr_use(&sock)?;
+    }
     let addr = SockAddr::from(SocketAddrV4::new(ip, port));
     sock.bind(&addr).map_err(|e| map_in_use(e, port, role))?;
     Ok(sock.into())

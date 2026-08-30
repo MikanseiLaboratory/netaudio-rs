@@ -158,8 +158,8 @@ impl Device {
                 ]
             }
         });
-        let (arc_port, cmc_port, flows_port, info_port) =
-            udp::pick_control_ports(ip, settings.alt_port)?;
+        let control_socks = udp::bind_control_ports(ip, settings.alt_port)?;
+        let (arc_port, cmc_port, flows_port, info_port) = control_socks.ports;
         let friendly = settings.name.clone();
         let hex_id = hex_id(&device_id);
         let mut factory = format!("netaudio-{hex_id}");
@@ -239,8 +239,14 @@ impl Device {
         let mut control_shutdown = shutdown_rx.clone();
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
         let control = tokio::spawn(async move {
-            if let Err(e) =
-                run_control(control_shared, info_rx, ready_tx, &mut control_shutdown).await
+            if let Err(e) = run_control(
+                control_shared,
+                info_rx,
+                ready_tx,
+                &mut control_shutdown,
+                control_socks,
+            )
+            .await
             {
                 log::error!("control plane error: {e}");
             }
@@ -387,33 +393,24 @@ async fn run_control(
     info_rx: tokio::sync::mpsc::UnboundedReceiver<info_mcast::InfoEvent>,
     ready: tokio::sync::oneshot::Sender<Result<(), Error>>,
     shutdown: &mut watch::Receiver<bool>,
+    socks: udp::ControlSockets,
 ) -> Result<(), Error> {
     let ip = shared.identity.ip;
-    let bind = |port, role| match udp::bind_unicast(ip, port, role) {
-        Ok(s) => udp::std_to_tokio(s),
-        Err(e) => Err(e),
-    };
-    let arc_sock = match bind(shared.identity.arc_port, "arc") {
+    let arc_sock = match udp::std_to_tokio(socks.arc) {
         Ok(s) => s,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Ok(());
         }
     };
-    let cmc_sock = match bind(shared.identity.cmc_port, "cmc") {
+    let cmc_sock = match udp::std_to_tokio(socks.cmc) {
         Ok(s) => s,
         Err(e) => {
             let _ = ready.send(Err(e));
             return Ok(());
         }
     };
-    let info_sock = match udp::bind_unicast(ip, shared.identity.info_port, "info") {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = ready.send(Err(e));
-            return Ok(());
-        }
-    };
+    let info_sock = socks.info;
     if let Err(e) = udp::set_multicast_if_v4(&info_sock, ip) {
         let _ = ready.send(Err(e));
         return Ok(());
