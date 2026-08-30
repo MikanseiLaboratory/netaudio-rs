@@ -1,7 +1,7 @@
 //! Dante 互換の受信デバイスを起動する CLI です。
 //!
 //! Windows / macOS / Linux で同じコマンドです。パッチ後の PCM は
-//! OS の default 出力で再生し、標準出力にピークを出します。
+//! OSのdefault出力で再生し、標準出力にピークを出します。
 //!
 //! ```text
 //! cargo run --example rx --features cpal -- ifaces
@@ -26,7 +26,7 @@ use std::time::{Duration, Instant};
     version,
     about = "Dante 互換の受信デバイスとして起動します。",
     long_about = "プロセスが Dante 機器として見え、Controller からのパッチを受けます。\
-                  既定では OS の default 出力で再生し、1 秒ごとにピークを表示します。"
+                  既定ではOSのdefault出力で再生し、1秒ごとにピークを表示します。"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -71,7 +71,7 @@ struct ListenArgs {
     #[arg(long)]
     alt_port: Option<u16>,
 
-    /// OS の default 出力で再生します（既定で有効）。
+    /// OSのdefault出力で再生します（既定で有効）。
     #[arg(long, action = clap::ArgAction::SetTrue)]
     play: bool,
 
@@ -234,7 +234,7 @@ async fn listen(args: ListenArgs) -> Result<(), netaudio::Error> {
             }
             Err(err) => {
                 eprintln!(
-                    "warning: default output を開けませんでした ({err})。ピーク表示のみ続けます。"
+                    "warning: default outputを開けませんでした ({err})。ピーク表示のみ続けます。"
                 );
                 None
             }

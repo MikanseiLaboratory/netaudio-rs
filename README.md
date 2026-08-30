@@ -32,7 +32,7 @@ v1 は Phase 3 です。制御面、メディア RX、PTPv1 にロックする o
 | --- | --- |
 | 形態 | ライブラリ（`netaudio`）。制御・メディア・クロックはプロセス内で動作します |
 | OS | Windows / macOS / Linux |
-| 音声 I/O | PCM は **`Device::try_read`** で取得します。任意で `set_rx_wakeup` を使えます。OS 再生は feature `cpal`（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）です |
+| 音声 I/O | PCM は **`Device::try_read`** で取得します。任意で `set_rx_wakeup` を使えます。OS再生はfeature `cpal`（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）です |
 | レイテンシ | 設定可能です。下限は **4 ms**（DVS クラスのソフトウェアクロック）です |
 | クロック | プロセス内 overlay です。PTPv1 を待ち受け、メディアパケットの時刻も使います |
 
@@ -56,7 +56,7 @@ let frames = dev.try_read(&mut frame)?;
 
 ## 受信 CLI（example）
 
-Windows / macOS / Linux 共通です。clap で引数を取り、Dante 機器として起動します。既定では OS の **default 出力**（Windows は WASAPI）で再生し、1 秒ごとにピークを表示します。`--no-play` でピークのみです。
+Windows / macOS / Linux 共通です。clap で引数を取り、Dante 機器として起動します。既定ではOSの**default出力**（WindowsはWASAPI）で再生し、1秒ごとにピークを表示します。`--no-play`でピークのみです。
 
 ```text
 cargo run --example rx --features cpal -- ifaces
@@ -64,7 +64,7 @@ cargo run --example rx --features cpal -- listen --bind 192.168.1.10 --name stud
 cargo run --example rx --features cpal -- listen --bind 192.168.1.10 --no-play
 ```
 
-`--bind` には IPv4 かインタフェース名（Windows では表示名）を渡します。example は feature `cpal` が必要です。`listen --help` でビット深度・サンプルレート・レイテンシ・`alt-port`・`--play` / `--no-play` を確認できます。Ctrl+C で停止します。
+`--bind` には IPv4 かインタフェース名（Windows では表示名）を渡します。exampleはfeature `cpal`が必要です。`listen --help` でビット深度・サンプルレート・レイテンシ・`alt-port`・`--play` / `--no-play` を確認できます。Ctrl+C で停止します。
 
 ソースは [`examples/rx.rs`](examples/rx.rs) です。
 
