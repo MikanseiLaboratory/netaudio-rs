@@ -173,7 +173,10 @@ fn print_ports(name: &str, bind: &str, ports: &BoundPorts) {
         println!("mDNS    UDP {p}");
     }
     if let Some(p) = ports.ptp_event {
-        println!("PTP     UDP {p} / {}（0.0.0.0へbind、Delay_Reqあり）", ports.ptp_general.unwrap_or(0));
+        println!(
+            "PTP     UDP {p} / {}（0.0.0.0へbind、Delay_Reqを1秒ごとに送る）",
+            ports.ptp_general.unwrap_or(0)
+        );
     }
     if ports.media.is_empty() {
         println!("media   パッチ後にUDP 14336..=14591へbindします");

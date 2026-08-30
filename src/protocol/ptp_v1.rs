@@ -5,6 +5,7 @@ pub const DELAY_REQ_LEN: usize = 124;
 pub const CONTROL_SYNC: u8 = 0;
 pub const CONTROL_DELAY_REQ: u8 = 1;
 pub const CONTROL_FOLLOW_UP: u8 = 2;
+pub const CONTROL_DELAY_RESP: u8 = 3;
 pub const MESSAGE_DELAY_REQ: u8 = 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

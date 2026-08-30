@@ -94,6 +94,8 @@ pub(crate) struct Shared {
     pub sub_wake: Notify,
     pub sub_pending: AtomicBool,
     pub mdns_tx: Mutex<Option<std::sync::mpsc::Sender<crate::net::mdns::MdnsQuery>>>,
+    /// TX IPv4s to unicast PTPv1 Delay_Req (DVS ptp.exe is 0.0.0.0:319).
+    pub ptp_unicast: Mutex<Vec<Ipv4Addr>>,
 }
 
 /// Running receive device. `Send + Sync`. One instance per [`Device::start`].
@@ -124,6 +126,14 @@ impl Device {
             .subscribe_override
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some((ipv4, flows_port));
+        let mut peers = self
+            .shared
+            .ptp_unicast
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !peers.contains(&ipv4) {
+            peers.push(ipv4);
+        }
     }
 
     async fn start_inner(settings: Settings, mdns: bool, ptp: bool) -> Result<Self, Error> {
@@ -216,6 +226,7 @@ impl Device {
             sub_wake: Notify::new(),
             sub_pending: AtomicBool::new(false),
             mdns_tx: Mutex::new(None),
+            ptp_unicast: Mutex::new(Vec::new()),
         });
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);

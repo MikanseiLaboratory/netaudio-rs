@@ -4,7 +4,7 @@ use super::overlay::{OverlayClock, Source};
 use crate::device::{Error, Shared};
 use crate::net::udp;
 use crate::protocol::ports;
-use crate::protocol::ptp_v1::{self, CONTROL_FOLLOW_UP, CONTROL_SYNC};
+use crate::protocol::ptp_v1::{self, CONTROL_DELAY_RESP, CONTROL_FOLLOW_UP, CONTROL_SYNC};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
@@ -18,8 +18,9 @@ struct PendingSync {
 
 pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
     let ip = shared.identity.ip;
-    let event = udp::bind_ptp(ip, ports::PTP_EVENT)?;
-    let general = udp::bind_ptp(ip, ports::PTP_GENERAL)?;
+    let if_index = shared.identity.iface.if_index;
+    let event = udp::bind_ptp(ip, ports::PTP_EVENT, if_index)?;
+    let general = udp::bind_ptp(ip, ports::PTP_GENERAL, if_index)?;
     event
         .set_read_timeout(Some(Duration::from_millis(200)))
         .ok();
@@ -49,9 +50,11 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
             let mut saw_foreign = false;
             let mut warned_silence = false;
             let mut logged_subdomain = false;
+            let mut logged_delay = false;
             let mut delay_seq: u16 = 1;
             let mut template: Option<Vec<u8>> = None;
             let started = Instant::now();
+            let mut next_delay = Instant::now();
             loop {
                 if shared.stopped.load(std::sync::atomic::Ordering::Acquire) {
                     break;
@@ -59,10 +62,16 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                 if let Ok((n, src)) = event.recv_from(&mut buf) {
                     if !logged_ptp {
                         logged_ptp = true;
-                        log::info!("PTP event {n} bytes from {src}");
+                        let ctl = ptp_v1::decode_header(&buf[..n])
+                            .map(|h| h.control as i32)
+                            .unwrap_or(-1);
+                        log::info!("PTP event {n} bytes from {src} control={ctl}");
                     }
                     let foreign = match src {
-                        SocketAddr::V4(v) => *v.ip() != ip,
+                        SocketAddr::V4(v) => {
+                            let a = *v.ip();
+                            a != ip && !a.is_unspecified() && !a.is_multicast()
+                        }
                         SocketAddr::V6(_) => true,
                     };
                     if foreign && !saw_foreign {
@@ -72,6 +81,12 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                     if template.is_none() && n >= ptp_v1::HEADER_LEN {
                         template = Some(buf[..n.min(ptp_v1::DELAY_REQ_LEN)].to_vec());
                     }
+                    if let Some(h) = ptp_v1::decode_header(&buf[..n])
+                        && h.control == CONTROL_DELAY_RESP
+                        && foreign
+                    {
+                        log::info!("PTP Delay_Resp from {src}");
+                    }
                     if handle_event(
                         &overlay,
                         &subdomain,
@@ -80,15 +95,16 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                         &mut logged_subdomain,
                     ) && foreign
                     {
-                        let pkt = ptp_v1::encode_delay_req(
+                        send_delay_req(
+                            &event,
                             &subdomain,
                             uuid,
-                            delay_seq,
+                            &mut delay_seq,
                             template.as_deref(),
+                            group,
+                            Some(src),
+                            &[],
                         );
-                        delay_seq = delay_seq.wrapping_add(1);
-                        let _ = event.send_to(&pkt, src);
-                        let _ = event.send_to(&pkt, group);
                     }
                 }
                 if let Ok((n, src)) = general.recv_from(&mut buf) {
@@ -97,7 +113,10 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                         log::info!("PTP general {n} bytes from {src}");
                     }
                     let foreign = match src {
-                        SocketAddr::V4(v) => *v.ip() != ip,
+                        SocketAddr::V4(v) => {
+                            let a = *v.ip();
+                            a != ip && !a.is_unspecified() && !a.is_multicast()
+                        }
                         SocketAddr::V6(_) => true,
                     };
                     if foreign && !saw_foreign {
@@ -112,6 +131,29 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                         &mut logged_subdomain,
                     );
                 }
+                let now = Instant::now();
+                if now >= next_delay {
+                    let peers: Vec<Ipv4Addr> = shared
+                        .ptp_unicast
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
+                    send_delay_req(
+                        &event,
+                        &subdomain,
+                        uuid,
+                        &mut delay_seq,
+                        template.as_deref(),
+                        group,
+                        None,
+                        &peers,
+                    );
+                    if !logged_delay {
+                        logged_delay = true;
+                        log::info!("PTP Delay_Req multicast {group} unicast={peers:?}");
+                    }
+                    next_delay = now + Duration::from_secs(1);
+                }
                 if !saw_foreign && !warned_silence && started.elapsed() >= Duration::from_secs(3) {
                     warned_silence = true;
                     log::warn!(
@@ -121,6 +163,27 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
             }
             let _ = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
         })?)
+}
+
+fn send_delay_req(
+    event: &std::net::UdpSocket,
+    subdomain: &[u8; 16],
+    uuid: [u8; 6],
+    delay_seq: &mut u16,
+    template: Option<&[u8]>,
+    group: SocketAddr,
+    extra: Option<SocketAddr>,
+    peers: &[Ipv4Addr],
+) {
+    let pkt = ptp_v1::encode_delay_req(subdomain, uuid, *delay_seq, template);
+    *delay_seq = delay_seq.wrapping_add(1);
+    let _ = event.send_to(&pkt, group);
+    if let Some(src) = extra {
+        let _ = event.send_to(&pkt, src);
+    }
+    for ip in peers {
+        let _ = event.send_to(&pkt, SocketAddr::from((*ip, ports::PTP_EVENT)));
+    }
 }
 
 fn handle_event(

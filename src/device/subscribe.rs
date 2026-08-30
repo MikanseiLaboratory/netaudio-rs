@@ -878,6 +878,15 @@ async fn resolve_tx(
     log::info!(
         "resolved {tx_ch}@{tx_host} → {ipv4}:{flows_port} id={tx_channel_id} bits={bits} fpp={fpp_max},{fpp_min} nchan={tx_nchan} dbcp1={dbcp1:#06x} latency_ns={latency_ns}"
     );
+    {
+        let mut peers = shared
+            .ptp_unicast
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if !peers.contains(&ipv4) {
+            peers.push(ipv4);
+        }
+    }
     Ok(ResolvedTx {
         flows_addr: SocketAddrV4::new(ipv4, flows_port),
         sample_rate,

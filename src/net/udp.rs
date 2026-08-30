@@ -2,7 +2,7 @@
 
 use crate::device::Error;
 use crate::protocol::ports as p;
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use socket2::{Domain, InterfaceIndexOrAddress, Protocol, SockAddr, Socket, Type};
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket as StdUdp};
 
 /// Bound ARC / CMC / info sockets plus the four logical control ports.
@@ -251,23 +251,28 @@ pub fn bind_mdns(ip: Ipv4Addr) -> Result<StdUdp, Error> {
     Ok(std)
 }
 
-pub fn bind_ptp(ip: Ipv4Addr, port: u16) -> Result<StdUdp, Error> {
+pub fn bind_ptp(ip: Ipv4Addr, port: u16, if_index: u32) -> Result<StdUdp, Error> {
     reject(ip)?;
     // Windows does not deliver 224.0.1.129 to a socket bound to a unicast
     // IP with SO_EXCLUSIVEADDRUSE. Bind INADDR_ANY + reuse like mDNS.
-    match bind_ptp_on(Ipv4Addr::UNSPECIFIED, ip, port) {
+    match bind_ptp_on(Ipv4Addr::UNSPECIFIED, ip, port, if_index) {
         Ok(s) => {
-            log::info!("PTP UDP {port} bound 0.0.0.0 (iface {ip})");
+            log::info!("PTP UDP {port} bound 0.0.0.0 (iface {ip} idx={if_index})");
             Ok(s)
         }
         Err(e) => {
             log::warn!("PTP UDP {port} 0.0.0.0 bind failed ({e}); retry {ip}");
-            bind_ptp_on(ip, ip, port)
+            bind_ptp_on(ip, ip, port, if_index)
         }
     }
 }
 
-fn bind_ptp_on(bind_ip: Ipv4Addr, iface: Ipv4Addr, port: u16) -> Result<StdUdp, Error> {
+fn bind_ptp_on(
+    bind_ip: Ipv4Addr,
+    iface: Ipv4Addr,
+    port: u16,
+    if_index: u32,
+) -> Result<StdUdp, Error> {
     let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
     sock.set_reuse_address(true)?;
     #[cfg(unix)]
@@ -288,7 +293,13 @@ fn bind_ptp_on(bind_ip: Ipv4Addr, iface: Ipv4Addr, port: u16) -> Result<StdUdp, 
         p::PTP_GROUP[2],
         p::PTP_GROUP[3],
     );
-    join_multicast_v4(&std, g, iface)?;
+    if if_index != 0 {
+        socket2::SockRef::from(&std)
+            .join_multicast_v4_n(&g, &InterfaceIndexOrAddress::Index(if_index))
+            .map_err(|_| Error::MulticastJoinFailed { group: g })?;
+    } else {
+        join_multicast_v4(&std, g, iface)?;
+    }
     std.set_multicast_ttl_v4(1)?;
     let _ = std.set_multicast_loop_v4(true);
     // Dante event = CS7, general = EF.

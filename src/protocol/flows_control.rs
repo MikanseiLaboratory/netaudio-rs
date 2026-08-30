@@ -104,11 +104,18 @@ pub fn parse_handle(content: &[u8]) -> Option<FlowHandle> {
     Some(h)
 }
 
-/// DVS 0x0100 ok is 14 bytes. Handle bytes 4..6 are often the TX media UDP port.
+/// Optional TX media UDP after the 6-byte handle (index+cookie). Cookie is not a port.
 pub fn parse_tx_media_port(content: &[u8]) -> Option<u16> {
-    let h = parse_handle(content)?;
-    let p = u16::from_be_bytes([h[4], h[5]]);
-    (p >= 1024).then_some(p)
+    if content.len() < 8 {
+        return None;
+    }
+    for chunk in content[6..].chunks_exact(2) {
+        let p = u16::from_be_bytes([chunk[0], chunk[1]]);
+        if (0x3800..=0x39FF).contains(&p) || (34_336..=34_600).contains(&p) {
+            return Some(p);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -167,9 +174,9 @@ mod tests {
     }
 
     #[test]
-    fn tx_media_port_from_dvs_ok() {
+    fn dvs_handle_cookie_is_not_a_media_port() {
         let content = hex::decode("000100017c4f0001000100000000").unwrap();
-        assert_eq!(parse_tx_media_port(&content), Some(0x7c4f));
         assert_eq!(parse_handle(&content).unwrap()[..6], [0, 1, 0, 1, 0x7c, 0x4f]);
+        assert_eq!(parse_tx_media_port(&content), None);
     }
 }
