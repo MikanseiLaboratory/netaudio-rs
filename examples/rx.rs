@@ -220,6 +220,7 @@ async fn listen(args: ListenArgs) -> Result<(), netaudio::Error> {
     let channels = settings.rx_channels;
     let device = Arc::new(Device::start(settings).await?);
     print_ports(&args.name, &args.bind, &device.bound_ports());
+    println!("handshake 0x0100をメディアUDPから送ります（src=media）");
 
     let output = if want_play {
         match netaudio::play::Output::start_default(Arc::clone(&device)) {

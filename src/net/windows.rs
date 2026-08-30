@@ -76,20 +76,26 @@ pub fn try_allow_inbound_udp() {
         .output()
     {
         Ok(o) if o.status.success() => {
+            eprintln!("firewall inbound UDP allow for {}", exe.display());
             log::info!("Windows Firewall inbound allow for {}", exe.display());
         }
         Ok(o) => {
             let msg = String::from_utf8_lossy(&o.stderr);
             let msg = msg.trim();
             if msg.is_empty() {
+                eprintln!("firewall rule netaudio-rs already present");
                 log::info!("Windows Firewall rule netaudio-rs already present");
             } else {
+                eprintln!("firewall {msg}; allow inbound UDP for {}", exe.display());
                 log::warn!(
                     "Windows Firewall: {msg}; allow inbound UDP for {}",
                     exe.display()
                 );
             }
         }
-        Err(e) => log::warn!("Windows Firewall netsh: {e}"),
+        Err(e) => {
+            eprintln!("firewall netsh: {e}");
+            log::warn!("Windows Firewall netsh: {e}");
+        }
     }
 }

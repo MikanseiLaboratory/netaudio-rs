@@ -19,7 +19,7 @@ use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::watch;
 
 const DEBOUNCE: Duration = Duration::from_millis(15);
@@ -554,7 +554,7 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         shared.identity.ip.octets(),
     );
     log::info!(
-        "0x0100 {} <- {}:{} ids={:?} rate={} bits={} fpp={} pkt={}",
+        "0x0100 {} <- {}:{} ids={:?} rate={} bits={} fpp={} src=media pkt={}",
         first_addr,
         shared.identity.ip,
         rx_port,
@@ -564,9 +564,22 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         fpp,
         to_hex(&pkt)
     );
-    // Inferno keeps the media socket as mio/std and sends 0x0100 from a
-    // separate connected querier. Putting this socket through tokio (IOCP on
-    // Windows) then calling into_std() leaves recv_from silent in the media thread.
+    // Send 0x0100 from the media socket with std recv (no tokio/IOCP).
+    // DVS then has a return path to this port; the media thread takes the
+    // socket only after the reply so handshake bytes are not stolen.
+    let handle =
+        match send_opcode_media(&media, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
+            Ok(h) => h,
+            Err(e) => {
+                log::warn!("flows-control 0x0100: {e}");
+                fail_new_flow(shared, flow_id, &still);
+                return;
+            }
+        };
+    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?} src=media");
+    if let Err(e) = udp::prepare_media(&media) {
+        log::warn!("media sockopt: {e}");
+    }
     if shared
         .media_tx
         .send(MediaCommand::AddFlow {
@@ -583,19 +596,6 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         fail_new_flow(shared, flow_id, &still);
         return;
     }
-
-    let handle = match send_opcode(shared, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
-        Ok(h) => h,
-        Err(e) => {
-            log::warn!("flows-control 0x0100: {e}");
-            let _ = shared
-                .media_tx
-                .send(MediaCommand::RemoveFlow { id: flow_id });
-            fail_new_flow(shared, flow_id, &still);
-            return;
-        }
-    };
-    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
 
     {
         let mut flows = shared.rx_flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -949,6 +949,70 @@ impl From<&str> for FcErr {
 impl From<String> for FcErr {
     fn from(s: String) -> Self {
         FcErr::Msg(s)
+    }
+}
+
+async fn send_opcode_media(
+    sock: &std::net::UdpSocket,
+    dest: SocketAddrV4,
+    seq: u16,
+    opcode1: u16,
+    pkt: &[u8],
+) -> Result<Option<FlowHandle>, FcErr> {
+    let sock = sock.try_clone().map_err(|e| e.to_string())?;
+    let pkt = pkt.to_vec();
+    tokio::task::spawn_blocking(move || send_opcode_std(sock, dest, seq, opcode1, &pkt))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn send_opcode_std(
+    sock: std::net::UdpSocket,
+    dest: SocketAddrV4,
+    seq: u16,
+    opcode1: u16,
+    pkt: &[u8],
+) -> Result<Option<FlowHandle>, FcErr> {
+    let _ = sock.set_nonblocking(false);
+    let _ = sock.set_read_timeout(Some(Duration::from_millis(250)));
+    sock.send_to(pkt, SocketAddr::V4(dest))
+        .map_err(|e| e.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut buf = [0u8; 1500];
+    loop {
+        if Instant::now() >= deadline {
+            return Err("flows-control timeout".into());
+        }
+        match sock.recv_from(&mut buf) {
+            Ok((n, _)) => {
+                let Some((h, content)) = req_resp::decode(&buf[..n]) else {
+                    continue;
+                };
+                if h.seqnum != seq || h.opcode1 != opcode1 {
+                    continue;
+                }
+                if h.opcode2 != 1 {
+                    log::warn!(
+                        "flows-control error op={opcode1:#06x} code={:#06x} reply={}",
+                        h.opcode2,
+                        to_hex(&buf[..n])
+                    );
+                    return Err(FcErr::Code(h.opcode2));
+                }
+                log::info!(
+                    "flows-control ok op={opcode1:#06x} reply={}",
+                    to_hex(&buf[..n])
+                );
+                return Ok(flows_control::parse_handle(content));
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::TimedOut
+                    || e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
+                continue;
+            }
+            Err(e) => return Err(e.to_string().into()),
+        }
     }
 }
 
