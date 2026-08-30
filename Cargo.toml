@@ -37,7 +37,7 @@ required-features = ["cpal"]
 
 [features]
 default = []
-# Play (not capture) on existing WASAPI / CoreAudio / ALSA host devices.
+# OS default playback (WASAPI / CoreAudio / ALSA).
 cpal = ["dep:cpal"]
 # Test doubles and Device::start_for_test (skip mDNS/PTP binds).
 test-util = []

@@ -10,7 +10,7 @@ Dante は Audinate Pty Ltd の商標です。
 
 ## 現状
 
-プライベート R&D です。製品計画は GitHub Issues にあります。実装仕様（技術選定、プロトコル、公開 API、作業順）は [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) です。
+プライベート R&D です。計画は GitHub Issues にあります。
 
 | GitHub | 内容 |
 | --- | --- |
@@ -32,7 +32,7 @@ v1 は Phase 3 です。制御面、メディア RX、PTPv1 にロックする o
 | --- | --- |
 | 形態 | ライブラリ（`netaudio`）。制御・メディア・クロックはプロセス内で動作します |
 | OS | Windows / macOS / Linux |
-| 音声 I/O | PCM は **`Device::try_read`** で取得します。任意で `set_rx_wakeup` を使えます。OS 再生は feature `cpal`（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9) の再生スライス）。キャプチャと adaptive SRC は未着手です |
+| 音声 I/O | PCM は **`Device::try_read`** で取得します。任意で `set_rx_wakeup` を使えます。OS 再生は feature `cpal`（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）です |
 | レイテンシ | 設定可能です。下限は **4 ms**（DVS クラスのソフトウェアクロック）です |
 | クロック | プロセス内 overlay です。PTPv1 を待ち受け、メディアパケットの時刻も使います |
 
@@ -100,7 +100,7 @@ sudo setcap cap_net_bind_service=+ep /path/to/your/binary
 ## 後続
 
 - TX チャネル（[#8](https://github.com/MikanseiLaboratory/netaudio-rs/issues/8)）
-- `cpal` 機能の残り: キャプチャと adaptive SRC（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）。再生は example と `netaudio::play` にあります
+- `cpal` 機能（[#9](https://github.com/MikanseiLaboratory/netaudio-rs/issues/9)）
 - ユーザー空間 ASIO DLL / VST3（[#10](https://github.com/MikanseiLaboratory/netaudio-rs/issues/10)）
 
 ## ライセンス

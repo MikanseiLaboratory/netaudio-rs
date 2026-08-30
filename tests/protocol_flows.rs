@@ -1,4 +1,4 @@
-//! Provenance: public capture (IMPLEMENTATION-PLAN.md §8.6).
+//! Provenance: public capture.
 
 #[test]
 fn request_flow_n4_fixture() {

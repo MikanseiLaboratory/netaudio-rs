@@ -1,7 +1,4 @@
-//! Optional playback adapter: `Device::try_read` → OS default output via cpal.
-//!
-//! Playback only. Capture, ASIO host, and VST3 are out of scope. Core modules
-//! (`device`, `media`, `clock`, `protocol`) do not mention cpal types.
+//! cpal playback adapter: `Device::try_read` → OS default output.
 
 use crate::{AudioFrameMut, Device, MediaTime, Sample};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
