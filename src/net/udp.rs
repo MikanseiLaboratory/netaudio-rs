@@ -253,27 +253,51 @@ pub fn bind_mdns(ip: Ipv4Addr) -> Result<StdUdp, Error> {
 
 pub fn bind_ptp(ip: Ipv4Addr, port: u16) -> Result<StdUdp, Error> {
     reject(ip)?;
-    let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-    #[cfg(windows)]
-    crate::net::windows::set_exclusive_addr_use(&sock)?;
-    let addr = SockAddr::from(SocketAddrV4::new(ip, port));
-    sock.bind(&addr).map_err(|e| {
-        if e.kind() == std::io::ErrorKind::PermissionDenied {
-            Error::PtpBindDenied { port }
-        } else {
-            map_in_use(e, port, "ptp")
+    // Windows does not deliver 224.0.1.129 to a socket bound to a unicast
+    // IP with SO_EXCLUSIVEADDRUSE. Bind INADDR_ANY + reuse like mDNS.
+    match bind_ptp_on(Ipv4Addr::UNSPECIFIED, ip, port) {
+        Ok(s) => {
+            log::info!("PTP UDP {port} bound 0.0.0.0 (iface {ip})");
+            Ok(s)
         }
-    })?;
+        Err(e) => {
+            log::warn!("PTP UDP {port} 0.0.0.0 bind failed ({e}); retry {ip}");
+            bind_ptp_on(ip, ip, port)
+        }
+    }
+}
+
+fn bind_ptp_on(bind_ip: Ipv4Addr, iface: Ipv4Addr, port: u16) -> Result<StdUdp, Error> {
+    let sock = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    sock.set_reuse_address(true)?;
+    #[cfg(unix)]
+    sock.set_reuse_port(true)?;
+    sock.bind(&SockAddr::from(SocketAddrV4::new(bind_ip, port)))
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                Error::PtpBindDenied { port }
+            } else {
+                map_in_use(e, port, "ptp")
+            }
+        })?;
     let std: StdUdp = sock.into();
-    set_multicast_if_v4(&std, ip)?;
+    set_multicast_if_v4(&std, iface)?;
     let g = Ipv4Addr::new(
         p::PTP_GROUP[0],
         p::PTP_GROUP[1],
         p::PTP_GROUP[2],
         p::PTP_GROUP[3],
     );
-    join_multicast_v4(&std, g, ip)?;
+    join_multicast_v4(&std, g, iface)?;
     std.set_multicast_ttl_v4(1)?;
+    let _ = std.set_multicast_loop_v4(true);
+    // Dante event = CS7, general = EF.
+    let tos = if port == p::PTP_EVENT {
+        56u32 << 2
+    } else {
+        46u32 << 2
+    };
+    let _ = socket2::SockRef::from(&std).set_tos_v4(tos);
     Ok(std)
 }
 

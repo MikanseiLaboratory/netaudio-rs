@@ -98,4 +98,31 @@ pub fn try_allow_inbound_udp() {
             log::warn!("Windows Firewall netsh: {e}");
         }
     }
+    try_allow_udp_ports("netaudio-rs-ptp", "319,320");
+    try_allow_udp_ports("netaudio-rs-media", "14336-14591");
+}
+
+fn try_allow_udp_ports(name: &str, localport: &str) {
+    match std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            &format!("name={name}"),
+            "dir=in",
+            "action=allow",
+            "protocol=UDP",
+            &format!("localport={localport}"),
+            "enable=yes",
+            "profile=any",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            log::info!("Windows Firewall inbound UDP {localport}");
+        }
+        Ok(_) => {}
+        Err(e) => log::warn!("Windows Firewall {name}: {e}"),
+    }
 }

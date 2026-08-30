@@ -23,6 +23,8 @@ pub enum MediaCommand {
         sample_rate: u32,
         /// Flows-control address of the TX (log / silence warning only).
         tx_hint: SocketAddrV4,
+        /// TX media UDP from the 0x0100 handle, if present.
+        tx_media_port: Option<u16>,
     },
     UpdateFlow {
         id: u16,
@@ -42,6 +44,7 @@ struct Flow {
     bytes_per_sample: usize,
     sample_rate: u32,
     tx_hint: SocketAddrV4,
+    tx_media_port: Option<u16>,
     last_source: Option<SocketAddr>,
     next_keepalive: Instant,
     saw_packet: bool,
@@ -92,11 +95,17 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 bytes_per_sample,
                 sample_rate,
                 tx_hint,
+                tx_media_port,
             }) => {
                 let _ = crate::net::udp::prepare_media(&sock);
                 if let Ok(p) = sock.local_addr() {
                     shared.ring.note_port(p.port());
-                    log::info!("media bind {p} nchan={nchan} bps={bytes_per_sample} tx={tx_hint}");
+                    log::info!(
+                        "media bind {p} nchan={nchan} bps={bytes_per_sample} tx={tx_hint} tx_media={tx_media_port:?}"
+                    );
+                    if let Some(port) = tx_media_port {
+                        log::info!("keepalive will probe {}:{}", tx_hint.ip(), port);
+                    }
                 }
                 flows.insert(
                     id,
@@ -108,6 +117,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                         bytes_per_sample,
                         sample_rate,
                         tx_hint,
+                        tx_media_port,
                         last_source: None,
                         next_keepalive: Instant::now(),
                         saw_packet: false,
@@ -184,7 +194,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 if let Some(src) = flow.last_source {
                     let _ = flow.sock.send_to(&keepalive::KEEPALIVE, src);
                 } else {
-                    punch_media_path(&flow.sock, flow.tx_hint);
+                    punch_media_path(&flow.sock, flow.tx_hint, flow.tx_media_port);
                 }
                 flow.next_keepalive = now + Duration::from_millis(keepalive::INTERVAL_MS);
             }
@@ -194,7 +204,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 flow.silent_until = None;
                 if let Ok(local) = flow.sock.local_addr() {
                     log::warn!(
-                        "no media UDP on {local} from {} yet; allow this process inbound UDP in Windows Firewall, and check Dante Controller shows Receiving not Pending",
+                        "no media UDP on {local} from {} yet; allow inbound UDP, confirm PTP is received, and check Dante Controller shows Receiving not Pending",
                         flow.tx_hint.ip()
                     );
                 }
@@ -204,8 +214,11 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
     }
 }
 
-fn punch_media_path(sock: &UdpSocket, tx_hint: SocketAddrV4) {
+fn punch_media_path(sock: &UdpSocket, tx_hint: SocketAddrV4, tx_media_port: Option<u16>) {
     let ip = *tx_hint.ip();
+    if let Some(p) = tx_media_port {
+        let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::from((ip, p)));
+    }
     let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::V4(tx_hint));
     let _ = sock.send_to(
         &keepalive::KEEPALIVE,

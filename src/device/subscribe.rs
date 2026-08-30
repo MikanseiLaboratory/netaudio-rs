@@ -567,16 +567,18 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
     // Send 0x0100 from the media socket with std recv (no tokio/IOCP).
     // DVS then has a return path to this port; the media thread takes the
     // socket only after the reply so handshake bytes are not stolen.
-    let handle =
+    let (handle, tx_media_port) =
         match send_opcode_media(&media, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
-            Ok(h) => h,
+            Ok(v) => v,
             Err(e) => {
                 log::warn!("flows-control 0x0100: {e}");
                 fail_new_flow(shared, flow_id, &still);
                 return;
             }
         };
-    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?} src=media");
+    log::info!(
+        "0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?} src=media tx_media={tx_media_port:?}"
+    );
     if let Err(e) = udp::prepare_media(&media) {
         log::warn!("media sockopt: {e}");
     }
@@ -590,6 +592,7 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
             bytes_per_sample: bytes,
             sample_rate: shared.settings.sample_rate,
             tx_hint: first_addr,
+            tx_media_port,
         })
         .is_err()
     {
@@ -759,6 +762,7 @@ async fn resolve_tx(
                     }
                 }
                 mdns_proto::RecordData::A(a) => {
+                    log::info!("mDNS A {} {a}", r.name);
                     let host_ok = mdns_proto::names_match(&r.name, &host_local);
                     let srv_ok = srv_target
                         .as_ref()
@@ -958,7 +962,7 @@ async fn send_opcode_media(
     seq: u16,
     opcode1: u16,
     pkt: &[u8],
-) -> Result<Option<FlowHandle>, FcErr> {
+) -> Result<(Option<FlowHandle>, Option<u16>), FcErr> {
     let sock = sock.try_clone().map_err(|e| e.to_string())?;
     let pkt = pkt.to_vec();
     tokio::task::spawn_blocking(move || send_opcode_std(sock, dest, seq, opcode1, &pkt))
@@ -972,7 +976,7 @@ fn send_opcode_std(
     seq: u16,
     opcode1: u16,
     pkt: &[u8],
-) -> Result<Option<FlowHandle>, FcErr> {
+) -> Result<(Option<FlowHandle>, Option<u16>), FcErr> {
     let _ = sock.set_nonblocking(false);
     let _ = sock.set_read_timeout(Some(Duration::from_millis(250)));
     sock.send_to(pkt, SocketAddr::V4(dest))
@@ -1003,7 +1007,10 @@ fn send_opcode_std(
                     "flows-control ok op={opcode1:#06x} reply={}",
                     to_hex(&buf[..n])
                 );
-                return Ok(flows_control::parse_handle(content));
+                return Ok((
+                    flows_control::parse_handle(content),
+                    flows_control::parse_tx_media_port(content),
+                ));
             }
             Err(e)
                 if e.kind() == std::io::ErrorKind::TimedOut

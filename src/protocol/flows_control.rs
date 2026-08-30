@@ -104,6 +104,13 @@ pub fn parse_handle(content: &[u8]) -> Option<FlowHandle> {
     Some(h)
 }
 
+/// DVS 0x0100 ok is 14 bytes. Handle bytes 4..6 are often the TX media UDP port.
+pub fn parse_tx_media_port(content: &[u8]) -> Option<u16> {
+    let h = parse_handle(content)?;
+    let p = u16::from_be_bytes([h[4], h[5]]);
+    (p >= 1024).then_some(p)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +164,12 @@ mod tests {
             "missing 0x0802 socket in {}",
             hex::encode(&pkt)
         );
+    }
+
+    #[test]
+    fn tx_media_port_from_dvs_ok() {
+        let content = hex::decode("000100017c4f0001000100000000").unwrap();
+        assert_eq!(parse_tx_media_port(&content), Some(0x7c4f));
+        assert_eq!(parse_handle(&content).unwrap()[..6], [0, 1, 0, 1, 0x7c, 0x4f]);
     }
 }
