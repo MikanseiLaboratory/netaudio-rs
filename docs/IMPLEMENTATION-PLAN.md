@@ -1237,6 +1237,8 @@ Same public API compiles on Windows 10/11, macOS, Linux. Overlay clock runs in-p
 - Missing overlay lock: do not start the stream (or silence **in the adapter**, not in core).
 - cpal ASIO host is **not** #10.
 
+**Playback slice (example / #13):** `src/play.rs` (`Output::start_default`) plays RX PCM on the host default output (WASAPI / CoreAudio / ALSA). Unpatched / not-due → silence in the adapter. Rate mismatch uses one-shot linear interpolation (not adaptive SRC). Capture, `try_write`, and two-oscillator SRC remain unstarted. The `rx` example defaults to playback (`--features cpal`); `--no-play` is meters only.
+
 ### 15.3 Phase 6 — user-space ASIO / VST3 (#10)
 
 Separate crates/repos: `netaudio-asio` (`cdylib` IASIO), `netaudio-vst3`. WDM/kernel/WHQL **out of scope**. Do not vendor Steinberg SDK in this MIT tree. Host callback is another slave clock → SRC. PTP leader still out of scope.

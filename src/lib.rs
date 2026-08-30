@@ -12,6 +12,9 @@ pub(crate) mod media;
 pub(crate) mod net;
 pub(crate) mod protocol;
 
+#[cfg(feature = "cpal")]
+pub mod play;
+
 /// Left-justified PCM sample at the crate boundary.
 ///
 /// Dante payloads are 16/24/32-bit big-endian integer. Unused LSBs are zero

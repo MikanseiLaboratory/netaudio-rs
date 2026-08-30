@@ -278,6 +278,16 @@ impl Device {
         })
     }
 
+    /// Sample rate configured at [`Device::start`] (Hz).
+    pub fn sample_rate(&self) -> u32 {
+        self.shared.settings.sample_rate
+    }
+
+    /// Receive channel count configured at [`Device::start`].
+    pub fn rx_channels(&self) -> u16 {
+        self.shared.settings.rx_channels
+    }
+
     pub fn try_read(&self, dst: &mut AudioFrameMut<'_>) -> Result<usize, Error> {
         if self.shared.stopped.load(Ordering::Acquire) {
             return Err(Error::Stopped);
