@@ -98,7 +98,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                     shared.ring.note_port(p.port());
                     log::info!("media bind {p} nchan={nchan} bps={bytes_per_sample} tx={tx_hint}");
                 }
-                send_keepalive_probes(&sock, tx_hint);
+                send_keepalive_probes(&sock, *tx_hint.ip(), true);
                 flows.insert(
                     id,
                     Flow {
@@ -186,7 +186,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 if let Some(src) = flow.last_source {
                     let _ = flow.sock.send_to(&keepalive::KEEPALIVE, src);
                 } else {
-                    send_keepalive_probes(&flow.sock, flow.tx_hint);
+                    send_keepalive_probes(&flow.sock, *flow.tx_hint.ip(), false);
                 }
                 flow.next_keepalive = now + Duration::from_millis(keepalive::INTERVAL_MS);
             }
@@ -196,8 +196,9 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 flow.silent_until = None;
                 if let Ok(local) = flow.sock.local_addr() {
                     log::warn!(
-                        "no media UDP on {local} from {} yet; Windows may drop inbound UDP until this process is allowed through the firewall",
-                        flow.tx_hint.ip()
+                        "no media UDP on {local} from {} yet; allow inbound UDP {} in Windows Firewall, and check Dante Controller shows Receiving not Pending",
+                        flow.tx_hint.ip(),
+                        local.port()
                     );
                 }
             }
@@ -206,9 +207,13 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
     }
 }
 
-fn send_keepalive_probes(sock: &UdpSocket, tx_hint: SocketAddrV4) {
-    let ip = *tx_hint.ip();
-    for port in ports::MEDIA_PORT_START..=ports::MEDIA_PORT_START + 7 {
+fn send_keepalive_probes(sock: &UdpSocket, ip: std::net::Ipv4Addr, full: bool) {
+    let end = if full {
+        ports::MEDIA_PORT_END_2
+    } else {
+        ports::MEDIA_PORT_START + 7
+    };
+    for port in ports::MEDIA_PORT_START..=end {
         let _ = sock.send_to(
             &keepalive::KEEPALIVE,
             SocketAddr::V4(SocketAddrV4::new(ip, port)),

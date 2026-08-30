@@ -373,6 +373,7 @@ async fn try_fill_existing(shared: &Shared, idx: usize, resolved: &ResolvedTx) -
     });
     let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
     let pkt = flows_control::encode_update(seq, u.handle, &u.tx_ids);
+    log::info!("0x0102 {} ids={:?}", u.addr, u.tx_ids);
     let _ = send_opcode(shared, u.addr, seq, flows_control::OP_UPDATE, &pkt).await;
     true
 }
@@ -449,6 +450,53 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
 
     let flow_id = shared.next_flow_id.fetch_add(1, Ordering::Relaxed);
     let flow_name = format!("{}_{}", flow_id, shared.identity.process_id);
+    let bytes = (first_bits / 8).max(1) as usize;
+    let nchan = tx_ids.len();
+
+    let mut live_slots = vec![None; nchan];
+    let mut live_tx = tx_ids.clone();
+    {
+        let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
+        for (i, (idx, r)) in still.iter().enumerate() {
+            if i >= nchan {
+                break;
+            }
+            if *idx < subs.len() && subs[*idx].flow_id.is_none() && subs[*idx].tx_channel.is_some()
+            {
+                subs[*idx].flow_id = Some(flow_id);
+                subs[*idx].status = arc::STATUS_ESTABLISHING;
+                live_slots[i] = Some((*idx as u16) + 1);
+                live_tx[i] = r.tx_channel_id;
+            }
+        }
+    }
+    if live_slots.iter().all(Option::is_none) {
+        return;
+    }
+
+    let map: Vec<Option<usize>> = live_slots
+        .iter()
+        .map(|id| id.map(|n| n as usize - 1))
+        .collect();
+    if shared
+        .media_tx
+        .send(MediaCommand::AddFlow {
+            id: flow_id,
+            sock: media,
+            map,
+            nchan,
+            bytes_per_sample: bytes,
+            sample_rate: shared.settings.sample_rate,
+            tx_hint: first_addr,
+        })
+        .is_err()
+    {
+        for slot in live_slots.iter().flatten() {
+            set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
+        }
+        return;
+    }
+
     let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
     let pkt = flows_control::encode_request_flow(
         seq,
@@ -473,41 +521,24 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         Ok(h) => h,
         Err(e) => {
             log::warn!("flows-control 0x0100: {e}");
+            let _ = shared
+                .media_tx
+                .send(MediaCommand::RemoveFlow { id: flow_id });
             for (idx, _) in &still {
                 set_status(shared, *idx, arc::STATUS_UNRESOLVED);
+            }
+            {
+                let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
+                for (idx, _) in &still {
+                    if *idx < subs.len() && subs[*idx].flow_id == Some(flow_id) {
+                        subs[*idx].flow_id = None;
+                    }
+                }
             }
             return;
         }
     };
     log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
-    let bytes = (first_bits / 8).max(1) as usize;
-    let nchan = tx_ids.len();
-
-    let mut live_slots = vec![None; nchan];
-    let mut live_tx = tx_ids.clone();
-    {
-        let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
-        for (i, (idx, r)) in still.iter().enumerate() {
-            if i >= nchan {
-                break;
-            }
-            if *idx < subs.len() && subs[*idx].flow_id.is_none() && subs[*idx].tx_channel.is_some()
-            {
-                subs[*idx].flow_id = Some(flow_id);
-                subs[*idx].status = arc::STATUS_ESTABLISHING;
-                live_slots[i] = Some((*idx as u16) + 1);
-                live_tx[i] = r.tx_channel_id;
-            }
-        }
-    }
-    if live_slots.iter().all(Option::is_none) {
-        if let Some(h) = handle {
-            let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
-            let pkt = flows_control::encode_stop(seq, h);
-            let _ = send_opcode(shared, first_addr, seq, flows_control::OP_STOP, &pkt).await;
-        }
-        return;
-    }
 
     {
         let mut flows = shared.rx_flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -515,7 +546,7 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
             flow_id,
             sample_rate: shared.settings.sample_rate,
             bits: first_bits as u16,
-            slots: live_slots.clone(),
+            slots: live_slots,
             tx_ids: live_tx,
             port: rx_port,
             ip: shared.identity.ip.octets(),
@@ -523,28 +554,6 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
             handle,
             tx_addr: first_addr,
         });
-    }
-
-    let map: Vec<Option<usize>> = live_slots
-        .iter()
-        .map(|id| id.map(|n| n as usize - 1))
-        .collect();
-    if shared
-        .media_tx
-        .send(MediaCommand::AddFlow {
-            id: flow_id,
-            sock: media,
-            map,
-            nchan,
-            bytes_per_sample: bytes,
-            sample_rate: shared.settings.sample_rate,
-            tx_hint: first_addr,
-        })
-        .is_err()
-    {
-        for slot in live_slots.iter().flatten() {
-            set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
-        }
     }
 }
 
