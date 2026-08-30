@@ -10,7 +10,7 @@ Dante は Audinate Pty Ltd の商標です。
 
 ## 現状
 
-プライベート R&D です。計画は GitHub Issues にあります。
+プライベート R&D です。
 
 | GitHub | 内容 |
 | --- | --- |
