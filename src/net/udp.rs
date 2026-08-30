@@ -139,6 +139,8 @@ fn bind_unicast_inner(
 
 /// Inferno allocates media ports from the OS. Hardware uses 0x3800..=0x397F;
 /// Windows Hyper-V often swallows that range even when bind succeeds.
+/// Do not wrap this socket in tokio: on Windows, IOCP registration then
+/// `into_std` makes the media thread's `recv_from` miss datagrams.
 pub fn bind_media(ip: Ipv4Addr) -> Result<StdUdp, Error> {
     bind_unicast(ip, 0, "media")
 }

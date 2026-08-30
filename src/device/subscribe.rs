@@ -302,12 +302,8 @@ async fn attach_host(shared: &Arc<Shared>, tx_host: &str, chans: Vec<(usize, Str
         let mut start = 0;
         while start < chunk.len() {
             let first = &chunk[start].1;
-            let width = flow_width(
-                rx_n,
-                first.tx_nchan,
-                chunk.len() - start,
-                first.unconstrained,
-            );
+            let remaining = chunk.len() - start;
+            let width = flow_width(rx_n, first.tx_nchan, remaining, first.unconstrained);
             let end = (start + width).min(chunk.len());
             let piece: Vec<(usize, ResolvedTx)> = chunk[start..end].to_vec();
             start = end;
@@ -551,49 +547,9 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         first_bits,
         fpp
     );
-    let media = match udp::std_to_tokio(media) {
-        Ok(s) => s,
-        Err(e) => {
-            log::warn!("media tokio: {e}");
-            for slot in live_slots.iter().flatten() {
-                set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
-            }
-            return;
-        }
-    };
-    let handle =
-        match send_opcode_sock(&media, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
-            Ok(h) => h,
-            Err(e) => {
-                log::warn!("flows-control 0x0100: {e}");
-                for (idx, _) in &still {
-                    set_status(shared, *idx, arc::STATUS_UNRESOLVED);
-                }
-                {
-                    let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
-                    for (idx, _) in &still {
-                        if *idx < subs.len() && subs[*idx].flow_id == Some(flow_id) {
-                            subs[*idx].flow_id = None;
-                        }
-                    }
-                }
-                return;
-            }
-        };
-    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
-    let media = match media.into_std() {
-        Ok(s) => s,
-        Err(e) => {
-            log::warn!("media into_std: {e}");
-            for slot in live_slots.iter().flatten() {
-                set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
-            }
-            return;
-        }
-    };
-    if let Err(e) = udp::prepare_media(&media) {
-        log::warn!("media sockopt: {e}");
-    }
+    // Inferno keeps the media socket as mio/std and sends 0x0100 from a
+    // separate connected querier. Putting this socket through tokio (IOCP on
+    // Windows) then calling into_std() leaves recv_from silent in the media thread.
     if shared
         .media_tx
         .send(MediaCommand::AddFlow {
@@ -607,11 +563,22 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         })
         .is_err()
     {
-        for slot in live_slots.iter().flatten() {
-            set_status(shared, *slot as usize - 1, arc::STATUS_UNRESOLVED);
-        }
+        fail_new_flow(shared, flow_id, &still);
         return;
     }
+
+    let handle = match send_opcode(shared, first_addr, seq, flows_control::OP_REQUEST, &pkt).await {
+        Ok(h) => h,
+        Err(e) => {
+            log::warn!("flows-control 0x0100: {e}");
+            let _ = shared
+                .media_tx
+                .send(MediaCommand::RemoveFlow { id: flow_id });
+            fail_new_flow(shared, flow_id, &still);
+            return;
+        }
+    };
+    log::info!("0x0100 ok bits={first_bits} fpp={fpp} ids={tx_ids:?}");
 
     {
         let mut flows = shared.rx_flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -627,6 +594,18 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
             handle,
             tx_addr: first_addr,
         });
+    }
+}
+
+fn fail_new_flow(shared: &Shared, flow_id: u16, still: &[(usize, ResolvedTx)]) {
+    for (idx, _) in still {
+        set_status(shared, *idx, arc::STATUS_UNRESOLVED);
+    }
+    let mut subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
+    for (idx, _) in still {
+        if *idx < subs.len() && subs[*idx].flow_id == Some(flow_id) {
+            subs[*idx].flow_id = None;
+        }
     }
 }
 
@@ -901,6 +880,8 @@ fn take_a(msg: &mdns_proto::Message, names: &[&str]) -> Option<Ipv4Addr> {
     None
 }
 
+/// Inferno `ChannelsSubscriber`: flow width is `nchan.min(rx).min(8)`, then
+/// unused slots are 0. `needed` is only the chunk size for loopback override.
 fn flow_width(rx_channels: usize, tx_nchan: usize, needed: usize, unconstrained: bool) -> usize {
     if needed == 0 {
         return 1;
@@ -908,10 +889,7 @@ fn flow_width(rx_channels: usize, tx_nchan: usize, needed: usize, unconstrained:
     if unconstrained {
         return needed.min(MAX_CHANNELS_IN_FLOW);
     }
-    needed
-        .min(tx_nchan)
-        .min(rx_channels)
-        .clamp(1, MAX_CHANNELS_IN_FLOW)
+    tx_nchan.min(rx_channels).clamp(1, MAX_CHANNELS_IN_FLOW)
 }
 
 fn choose_fpp(nchan: usize, bytes: usize, advertised_max: u16) -> u16 {
@@ -963,19 +941,10 @@ async fn send_opcode(
 ) -> Result<Option<FlowHandle>, FcErr> {
     let sock = udp::std_to_tokio(udp::bind_querier(shared.identity.ip).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
-    send_opcode_sock(&sock, dest, seq, opcode1, pkt).await
-}
-
-async fn send_opcode_sock(
-    sock: &tokio::net::UdpSocket,
-    dest: SocketAddrV4,
-    seq: u16,
-    opcode1: u16,
-    pkt: &[u8],
-) -> Result<Option<FlowHandle>, FcErr> {
-    sock.send_to(pkt, SocketAddr::V4(dest))
+    sock.connect(SocketAddr::V4(dest))
         .await
         .map_err(|e| e.to_string())?;
+    sock.send(pkt).await.map_err(|e| e.to_string())?;
     let mut buf = [0u8; 1500];
     let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
     loop {
@@ -983,11 +952,11 @@ async fn send_opcode_sock(
         if now >= deadline {
             return Err("flows-control timeout".into());
         }
-        let rec = tokio::time::timeout(deadline - now, sock.recv_from(&mut buf))
+        let n = tokio::time::timeout(deadline - now, sock.recv(&mut buf))
             .await
             .map_err(|_| "flows-control timeout".to_string())?
             .map_err(|e| e.to_string())?;
-        let Some((h, content)) = req_resp::decode(&buf[..rec.0]) else {
+        let Some((h, content)) = req_resp::decode(&buf[..n]) else {
             continue;
         };
         if h.seqnum != seq || h.opcode1 != opcode1 {
@@ -1054,10 +1023,11 @@ mod tests {
     }
 
     #[test]
-    fn width_is_subscribed_count() {
-        assert_eq!(flow_width(2, 64, 1, false), 1);
+    fn width_is_inferno_nchan_capped_by_rx() {
+        assert_eq!(flow_width(2, 8, 1, false), 2);
+        assert_eq!(flow_width(2, 64, 1, false), 2);
         assert_eq!(flow_width(2, 64, 2, false), 2);
-        assert_eq!(flow_width(8, 8, 2, false), 2);
+        assert_eq!(flow_width(8, 8, 2, false), 8);
         assert_eq!(flow_width(8, 2, 2, false), 2);
         assert_eq!(flow_width(8, 8, 8, false), 8);
     }

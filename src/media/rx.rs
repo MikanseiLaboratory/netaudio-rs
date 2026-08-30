@@ -20,7 +20,7 @@ pub enum MediaCommand {
         nchan: usize,
         bytes_per_sample: usize,
         sample_rate: u32,
-        /// Flows-control address of the TX. Keepalive goes here until media arrives.
+        /// Flows-control address of the TX (log / silence warning only).
         tx_hint: SocketAddrV4,
     },
     UpdateFlow {
