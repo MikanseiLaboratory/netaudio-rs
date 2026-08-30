@@ -34,14 +34,23 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
             let subdomain = shared.settings.ptp_subdomain;
             let mut pending: Option<PendingSync> = None;
             let mut buf = [0u8; 1500];
+            let mut logged_ptp = false;
             loop {
                 if shared.stopped.load(std::sync::atomic::Ordering::Acquire) {
                     break;
                 }
-                if let Ok((n, _)) = event.recv_from(&mut buf) {
+                if let Ok((n, src)) = event.recv_from(&mut buf) {
+                    if !logged_ptp {
+                        logged_ptp = true;
+                        log::info!("PTP event {n} bytes from {src}");
+                    }
                     handle_event(&overlay, &subdomain, &buf[..n], &mut pending);
                 }
-                if let Ok((n, _)) = general.recv_from(&mut buf) {
+                if let Ok((n, src)) = general.recv_from(&mut buf) {
+                    if !logged_ptp {
+                        logged_ptp = true;
+                        log::info!("PTP general {n} bytes from {src}");
+                    }
                     handle_general(&overlay, &subdomain, &buf[..n], &mut pending);
                 }
             }

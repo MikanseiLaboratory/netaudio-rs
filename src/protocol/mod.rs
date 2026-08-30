@@ -27,6 +27,9 @@ pub mod ports {
     pub const MEDIA_PORT_END: u16 = 0x397F;
     pub const MEDIA_PORT_START_2: u16 = 0x3980;
     pub const MEDIA_PORT_END_2: u16 = 0x39FF;
+    /// Dante Via unicast audio.
+    pub const MEDIA_VIA_START: u16 = 34_336;
+    pub const MEDIA_VIA_END: u16 = 34_600;
 
     pub const MDNS_GROUP: [u8; 4] = [224, 0, 0, 251];
     pub const INFO_GROUP: [u8; 4] = [224, 0, 0, 231];

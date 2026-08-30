@@ -72,6 +72,7 @@ fn overlaps_fixed_or_media(base: u16) -> bool {
         || hits(p::PTP_EVENT)
         || hits(p::PTP_GENERAL)
         || last >= p::MEDIA_PORT_START && base <= p::MEDIA_PORT_END_2
+        || last >= p::MEDIA_VIA_START && base <= p::MEDIA_VIA_END
 }
 
 fn control_base_candidates() -> impl Iterator<Item = u16> {
@@ -138,21 +139,34 @@ fn bind_unicast_inner(
 }
 
 /// Hardware / DVS unicast audio is UDP 14336..=14591 (`0x3800..=0x38FF`).
-/// `bind(0)` on Windows often returns a Hyper-V excluded ephemeral port:
-/// bind succeeds, inbound datagrams never reach the socket.
+/// Via uses 34336..=34600. `bind(0)` on Windows often returns a Hyper-V
+/// excluded ephemeral port (bind succeeds, inbound never arrives).
 /// Do not wrap this socket in tokio (IOCP then `into_std` drops recv_from).
 pub fn bind_media(ip: Ipv4Addr) -> Result<StdUdp, Error> {
-    if let Ok(s) = bind_in_range(ip, p::MEDIA_PORT_START, p::MEDIA_PORT_END) {
-        return Ok(s);
-    }
-    if let Ok(s) = bind_in_range(ip, p::MEDIA_PORT_START_2, p::MEDIA_PORT_END_2) {
-        return Ok(s);
-    }
-    log::warn!("Dante unicast media ports unavailable, trying 20000..=20255");
-    if let Ok(s) = bind_in_range(ip, 20_000, 20_255) {
-        return Ok(s);
+    for (start, end) in [
+        (p::MEDIA_PORT_START, p::MEDIA_PORT_END),
+        (p::MEDIA_PORT_START_2, p::MEDIA_PORT_END_2),
+        (p::MEDIA_VIA_START, p::MEDIA_VIA_END),
+        (20_000, 20_255),
+    ] {
+        match bind_in_range(ip, start, end) {
+            Ok(s) => return Ok(s),
+            Err(Error::PortInUse { .. }) => continue,
+            Err(e) => return Err(e),
+        }
     }
     bind_unicast(ip, 0, "media")
+}
+
+fn bind_media_port(ip: Ipv4Addr, port: u16) -> Result<StdUdp, Error> {
+    #[cfg(windows)]
+    {
+        bind_unicast_inner(ip, port, "media", false)
+    }
+    #[cfg(not(windows))]
+    {
+        bind_unicast(ip, port, "media")
+    }
 }
 
 fn bind_in_range(ip: Ipv4Addr, start: u16, end: u16) -> Result<StdUdp, Error> {
@@ -161,14 +175,55 @@ fn bind_in_range(ip: Ipv4Addr, start: u16, end: u16) -> Result<StdUdp, Error> {
         port: start,
         role: "media",
     };
+    let mut consecutive_dead = 0u8;
     for port in start..=end {
-        match bind_unicast(ip, port, "media") {
-            Ok(s) => return Ok(s),
-            Err(e @ Error::PortInUse { .. }) => last = e,
+        match bind_media_port(ip, port) {
+            Ok(s) => {
+                if media_port_receives(&s) {
+                    return Ok(s);
+                }
+                log::warn!("media UDP {ip}:{port} bound but self-echo failed (excluded/WFP)");
+                consecutive_dead = consecutive_dead.saturating_add(1);
+                if consecutive_dead >= 8 {
+                    break;
+                }
+            }
+            Err(e @ Error::PortInUse { .. }) => {
+                consecutive_dead = 0;
+                last = e;
+            }
             Err(e) => return Err(e),
         }
     }
     Err(last)
+}
+
+/// True if a datagram sent to the bound address comes back. Hyper-V excluded
+/// ports bind successfully then drop inbound, including this probe.
+fn media_port_receives(sock: &StdUdp) -> bool {
+    #[cfg(windows)]
+    let _ = crate::net::windows::disable_udp_connreset(sock);
+    let Ok(addr) = sock.local_addr() else {
+        return false;
+    };
+    let _ = sock.set_nonblocking(true);
+    let mut buf = [0u8; 64];
+    while sock.recv_from(&mut buf).is_ok() {}
+    if sock.send_to(&[0x13, 0x37], addr).is_err() {
+        return false;
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(20);
+    while std::time::Instant::now() < deadline {
+        match sock.recv_from(&mut buf) {
+            Ok((n, _)) if n >= 2 && buf[0] == 0x13 && buf[1] == 0x37 => return true,
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            Err(_) => return false,
+        }
+    }
+    false
 }
 
 pub fn bind_mdns(ip: Ipv4Addr) -> Result<StdUdp, Error> {
@@ -326,8 +381,13 @@ mod tests {
         assert!(
             (p::MEDIA_PORT_START..=p::MEDIA_PORT_END).contains(&port)
                 || (p::MEDIA_PORT_START_2..=p::MEDIA_PORT_END_2).contains(&port)
+                || (p::MEDIA_VIA_START..=p::MEDIA_VIA_END).contains(&port)
                 || (20_000..=20_255).contains(&port),
             "unexpected media port {port}"
+        );
+        assert!(
+            media_port_receives(&s),
+            "bound media port {port} failed self-echo"
         );
     }
 

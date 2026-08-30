@@ -221,6 +221,8 @@ impl Device {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
         let mdns_handle = if mdns {
+            #[cfg(windows)]
+            crate::net::windows::try_allow_inbound_udp();
             Some(MdnsAnnouncer::start(shared.clone())?)
         } else {
             None

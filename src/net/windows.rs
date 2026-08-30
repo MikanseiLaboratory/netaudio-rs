@@ -52,3 +52,44 @@ pub fn disable_udp_connreset(sock: &std::net::UdpSocket) -> Result<(), Error> {
     }
     Ok(())
 }
+
+/// Best-effort inbound allow for this process. DVS installer does this;
+/// without it Windows drops unicast media from TX source ports we cannot know.
+pub fn try_allow_inbound_udp() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let program = format!("program={}", exe.display());
+    match std::process::Command::new("netsh")
+        .args([
+            "advfirewall",
+            "firewall",
+            "add",
+            "rule",
+            "name=netaudio-rs",
+            "dir=in",
+            "action=allow",
+            program.as_str(),
+            "enable=yes",
+            "profile=any",
+        ])
+        .output()
+    {
+        Ok(o) if o.status.success() => {
+            log::info!("Windows Firewall inbound allow for {}", exe.display());
+        }
+        Ok(o) => {
+            let msg = String::from_utf8_lossy(&o.stderr);
+            let msg = msg.trim();
+            if msg.is_empty() {
+                log::info!("Windows Firewall rule netaudio-rs already present");
+            } else {
+                log::warn!(
+                    "Windows Firewall: {msg}; allow inbound UDP for {}",
+                    exe.display()
+                );
+            }
+        }
+        Err(e) => log::warn!("Windows Firewall netsh: {e}"),
+    }
+}

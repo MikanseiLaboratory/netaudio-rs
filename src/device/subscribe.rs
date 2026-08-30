@@ -15,6 +15,7 @@ use crate::protocol::mdns as mdns_proto;
 use crate::protocol::ports;
 use crate::protocol::req_resp;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -553,14 +554,15 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         shared.identity.ip.octets(),
     );
     log::info!(
-        "0x0100 {} <- {}:{} ids={:?} rate={} bits={} fpp={}",
+        "0x0100 {} <- {}:{} ids={:?} rate={} bits={} fpp={} pkt={}",
         first_addr,
         shared.identity.ip,
         rx_port,
         tx_ids,
         shared.settings.sample_rate,
         first_bits,
-        fpp
+        fpp,
+        to_hex(&pkt)
     );
     // Inferno keeps the media socket as mio/std and sends 0x0100 from a
     // separate connected querier. Putting this socket through tokio (IOCP on
@@ -986,10 +988,27 @@ async fn send_opcode(
             continue;
         }
         if h.opcode2 != 1 {
+            log::warn!(
+                "flows-control error op={opcode1:#06x} code={:#06x} reply={}",
+                h.opcode2,
+                to_hex(&buf[..n])
+            );
             return Err(FcErr::Code(h.opcode2));
         }
+        log::info!(
+            "flows-control ok op={opcode1:#06x} reply={}",
+            to_hex(&buf[..n])
+        );
         return Ok(flows_control::parse_handle(content));
     }
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        let _ = write!(s, "{b:02x}");
+    }
+    s
 }
 
 fn still_pending(shared: &Shared, idx: usize, tx_ch: &str, tx_host: &str) -> bool {
