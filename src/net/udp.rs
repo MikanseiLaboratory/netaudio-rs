@@ -137,12 +137,38 @@ fn bind_unicast_inner(
     Ok(sock.into())
 }
 
-/// Inferno allocates media ports from the OS. Hardware uses 0x3800..=0x397F;
-/// Windows Hyper-V often swallows that range even when bind succeeds.
-/// Do not wrap this socket in tokio: on Windows, IOCP registration then
-/// `into_std` makes the media thread's `recv_from` miss datagrams.
+/// Hardware / DVS unicast audio is UDP 14336..=14591 (`0x3800..=0x38FF`).
+/// `bind(0)` on Windows often returns a Hyper-V excluded ephemeral port:
+/// bind succeeds, inbound datagrams never reach the socket.
+/// Do not wrap this socket in tokio (IOCP then `into_std` drops recv_from).
 pub fn bind_media(ip: Ipv4Addr) -> Result<StdUdp, Error> {
+    if let Ok(s) = bind_in_range(ip, p::MEDIA_PORT_START, p::MEDIA_PORT_END) {
+        return Ok(s);
+    }
+    if let Ok(s) = bind_in_range(ip, p::MEDIA_PORT_START_2, p::MEDIA_PORT_END_2) {
+        return Ok(s);
+    }
+    log::warn!("Dante unicast media ports unavailable, trying 20000..=20255");
+    if let Ok(s) = bind_in_range(ip, 20_000, 20_255) {
+        return Ok(s);
+    }
     bind_unicast(ip, 0, "media")
+}
+
+fn bind_in_range(ip: Ipv4Addr, start: u16, end: u16) -> Result<StdUdp, Error> {
+    reject(ip)?;
+    let mut last = Error::PortInUse {
+        port: start,
+        role: "media",
+    };
+    for port in start..=end {
+        match bind_unicast(ip, port, "media") {
+            Ok(s) => return Ok(s),
+            Err(e @ Error::PortInUse { .. }) => last = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last)
 }
 
 pub fn bind_mdns(ip: Ipv4Addr) -> Result<StdUdp, Error> {
@@ -291,6 +317,18 @@ mod tests {
             assert_eq!(info, arc + 3);
             assert!(!overlaps_fixed_or_media(arc));
         }
+    }
+
+    #[test]
+    fn bind_media_uses_dante_unicast_range() {
+        let s = bind_media(Ipv4Addr::LOCALHOST).expect("media");
+        let port = s.local_addr().unwrap().port();
+        assert!(
+            (p::MEDIA_PORT_START..=p::MEDIA_PORT_END).contains(&port)
+                || (p::MEDIA_PORT_START_2..=p::MEDIA_PORT_END_2).contains(&port)
+                || (20_000..=20_255).contains(&port),
+            "unexpected media port {port}"
+        );
     }
 
     #[test]

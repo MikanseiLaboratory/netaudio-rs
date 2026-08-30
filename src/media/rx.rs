@@ -5,6 +5,7 @@ use crate::clock::overlay::Source;
 use crate::device::Shared;
 use crate::protocol::media as media_proto;
 use crate::protocol::pcm;
+use crate::protocol::ports;
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
@@ -108,8 +109,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                         sample_rate,
                         tx_hint,
                         last_source: None,
-                        next_keepalive: Instant::now()
-                            + Duration::from_millis(keepalive::INTERVAL_MS),
+                        next_keepalive: Instant::now(),
                         saw_packet: false,
                         silent_until: Some(Instant::now() + Duration::from_secs(2)),
                         logged_undecoded: false,
@@ -183,6 +183,8 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
             if now >= flow.next_keepalive {
                 if let Some(src) = flow.last_source {
                     let _ = flow.sock.send_to(&keepalive::KEEPALIVE, src);
+                } else {
+                    punch_media_path(&flow.sock, flow.tx_hint);
                 }
                 flow.next_keepalive = now + Duration::from_millis(keepalive::INTERVAL_MS);
             }
@@ -192,13 +194,25 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 flow.silent_until = None;
                 if let Ok(local) = flow.sock.local_addr() {
                     log::warn!(
-                        "no media UDP on {local} from {} yet; allow this process inbound UDP in Windows Firewall (media port is OS-assigned), and check Dante Controller shows Receiving not Pending",
+                        "no media UDP on {local} from {} yet; allow this process inbound UDP in Windows Firewall, and check Dante Controller shows Receiving not Pending",
                         flow.tx_hint.ip()
                     );
                 }
             }
         }
         shared.overlay.mark_unlocked_if_stale(1_000_000_000);
+    }
+}
+
+fn punch_media_path(sock: &UdpSocket, tx_hint: SocketAddrV4) {
+    let ip = *tx_hint.ip();
+    let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::V4(tx_hint));
+    let _ = sock.send_to(
+        &keepalive::KEEPALIVE,
+        SocketAddr::from((ip, ports::MEDIA_PORT_START)),
+    );
+    if let Ok(local) = sock.local_addr() {
+        let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::from((ip, local.port())));
     }
 }
 

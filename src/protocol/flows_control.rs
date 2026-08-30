@@ -19,6 +19,9 @@ pub const ERR_PARAMS: u16 = 0x0314;
 
 /// Advertised in ARC 0x1000. Inferno chunks a TX into flows of this width.
 pub const MAX_CHANNELS_IN_FLOW: usize = 8;
+/// Audinate unicast flows are 4 channels (empty slots padded with 0). DVS TXT
+/// `nchan=8` is not the unicast flow width.
+pub const DANTE_UNICAST_CHANNELS: usize = 4;
 /// Inferno `MAX_PAYLOAD_BYTES`: cap fpp so PCM fits one UDP datagram.
 pub const MAX_PAYLOAD_BYTES: usize = 1400;
 
@@ -135,14 +138,14 @@ mod tests {
             48_000,
             24,
             48,
-            &[1, 0],
+            &[1, 0, 0, 0],
             "akizuki-test-rx",
             "1_42",
             60077,
             [192, 168, 3, 24],
         );
         let (_, content) = req_resp::decode(&pkt).unwrap();
-        assert_eq!(u16::from_be_bytes(content[12..14].try_into().unwrap()), 2);
+        assert_eq!(u16::from_be_bytes(content[12..14].try_into().unwrap()), 4);
         let needle = {
             let mut v = vec![0x08, 0x02];
             v.extend_from_slice(&60077u16.to_be_bytes());

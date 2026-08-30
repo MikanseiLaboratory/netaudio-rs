@@ -8,7 +8,9 @@ use super::info_mcast::InfoEvent;
 use crate::media::rx::MediaCommand;
 use crate::net::udp;
 use crate::protocol::arc::{self, SubscribeReq};
-use crate::protocol::flows_control::{self, FlowHandle, MAX_CHANNELS_IN_FLOW};
+use crate::protocol::flows_control::{
+    self, DANTE_UNICAST_CHANNELS, FlowHandle, MAX_CHANNELS_IN_FLOW,
+};
 use crate::protocol::mdns as mdns_proto;
 use crate::protocol::ports;
 use crate::protocol::req_resp;
@@ -85,7 +87,7 @@ pub fn apply(shared: &Arc<Shared>, recs: Vec<SubscribeReq>) {
                 if !same {
                     subs[idx].tx_channel = rec.tx_channel.clone();
                     subs[idx].tx_host = rec.tx_host.clone();
-                    subs[idx].status = arc::STATUS_UNRESOLVED;
+                    subs[idx].status = arc::STATUS_ESTABLISHING;
                     subs[idx].flow_id = None;
                     if let (Some(ch), Some(h)) = (&rec.tx_channel, &rec.tx_host) {
                         log::info!("subscribe RX{} <- {ch}@{h}", rec.local_id);
@@ -343,29 +345,42 @@ async fn resolve_one(
     if !still_pending(shared, idx, tx_ch, tx_host) {
         return None;
     }
-    match resolve_tx(shared, tx_host, tx_ch).await {
-        Ok(r) => {
-            if r.sample_rate != shared.settings.sample_rate {
-                log::warn!(
-                    "subscribe rate mismatch: tx {} local {}",
-                    r.sample_rate,
-                    shared.settings.sample_rate
-                );
-                set_status(shared, idx, arc::STATUS_UNRESOLVED);
-                return None;
-            }
-            if !still_pending(shared, idx, tx_ch, tx_host) {
-                return None;
-            }
-            set_status(shared, idx, arc::STATUS_ESTABLISHING);
-            Some((idx, r))
+    set_status(shared, idx, arc::STATUS_ESTABLISHING);
+    let mut last_err = None;
+    for attempt in 0..3u32 {
+        if !still_pending(shared, idx, tx_ch, tx_host) {
+            return None;
         }
-        Err(e) => {
-            log::warn!("subscribe resolve failed: {e}");
-            set_status(shared, idx, arc::STATUS_UNRESOLVED);
-            None
+        match resolve_tx(shared, tx_host, tx_ch).await {
+            Ok(r) => {
+                if r.sample_rate != shared.settings.sample_rate {
+                    log::warn!(
+                        "subscribe rate mismatch: tx {} local {}",
+                        r.sample_rate,
+                        shared.settings.sample_rate
+                    );
+                    set_status(shared, idx, arc::STATUS_UNRESOLVED);
+                    return None;
+                }
+                if !still_pending(shared, idx, tx_ch, tx_host) {
+                    return None;
+                }
+                set_status(shared, idx, arc::STATUS_ESTABLISHING);
+                return Some((idx, r));
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt + 1 < 3 {
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                }
+            }
         }
     }
+    if let Some(e) = last_err {
+        log::warn!("subscribe resolve failed: {e}");
+    }
+    set_status(shared, idx, arc::STATUS_UNRESOLVED);
+    None
 }
 
 struct FillUpdate {
@@ -880,16 +895,19 @@ fn take_a(msg: &mdns_proto::Message, names: &[&str]) -> Option<Ipv4Addr> {
     None
 }
 
-/// Inferno `ChannelsSubscriber`: flow width is `nchan.min(rx).min(8)`, then
-/// unused slots are 0. `needed` is only the chunk size for loopback override.
-fn flow_width(rx_channels: usize, tx_nchan: usize, needed: usize, unconstrained: bool) -> usize {
+/// Dante unicast flows are 4 channels with unused slots 0 (Audinate, golden
+/// capture). Inferno uses `nchan.min(rx)` which becomes 2 for a 2ch RX and DVS
+/// then accepts 0x0100 without sending media. `needed` is loopback override only.
+fn flow_width(_rx_channels: usize, tx_nchan: usize, needed: usize, unconstrained: bool) -> usize {
     if needed == 0 {
         return 1;
     }
     if unconstrained {
         return needed.min(MAX_CHANNELS_IN_FLOW);
     }
-    tx_nchan.min(rx_channels).clamp(1, MAX_CHANNELS_IN_FLOW)
+    DANTE_UNICAST_CHANNELS
+        .min(tx_nchan.max(1))
+        .clamp(1, MAX_CHANNELS_IN_FLOW)
 }
 
 fn choose_fpp(nchan: usize, bytes: usize, advertised_max: u16) -> u16 {
@@ -1023,13 +1041,14 @@ mod tests {
     }
 
     #[test]
-    fn width_is_inferno_nchan_capped_by_rx() {
-        assert_eq!(flow_width(2, 8, 1, false), 2);
-        assert_eq!(flow_width(2, 64, 1, false), 2);
-        assert_eq!(flow_width(2, 64, 2, false), 2);
-        assert_eq!(flow_width(8, 8, 2, false), 8);
+    fn width_is_dante_unicast_four() {
+        assert_eq!(flow_width(2, 8, 1, false), 4);
+        assert_eq!(flow_width(2, 64, 1, false), 4);
+        assert_eq!(flow_width(2, 64, 2, false), 4);
+        assert_eq!(flow_width(2, 2, 1, false), 2);
+        assert_eq!(flow_width(8, 8, 2, false), 4);
         assert_eq!(flow_width(8, 2, 2, false), 2);
-        assert_eq!(flow_width(8, 8, 8, false), 8);
+        assert_eq!(flow_width(8, 8, 8, false), 4);
     }
 
     #[test]
