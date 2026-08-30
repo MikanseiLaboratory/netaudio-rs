@@ -188,4 +188,16 @@ mod tests {
         let _ = r.read(12, 1, 1, &mut buf2);
         assert_eq!(buf2[0], 0);
     }
+
+    #[test]
+    fn interleaved_two_channel_flow() {
+        let r = Ring::new(2, 192);
+        r.set_patched(0, true);
+        r.set_patched(1, true);
+        r.write_packet(0, 0, &[Some(0), Some(1)], &[10, 20, 11, 21], 2);
+        let mut buf = [0; 8];
+        let (n, _) = r.read(0, 2, 2, &mut buf);
+        assert_eq!(n, 2);
+        assert_eq!(&buf[..4], &[10, 20, 11, 21]);
+    }
 }

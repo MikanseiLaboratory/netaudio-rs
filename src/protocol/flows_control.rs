@@ -12,6 +12,15 @@ pub const OP_UPDATE: u16 = 0x0102;
 pub const ERR_EXPIRED: u16 = 0x0103;
 pub const ERR_TOO_MANY: u16 = 0x0315;
 pub const ERR_RATE: u16 = 0x0301;
+/// Inferno TX: bad channel index or fpp above the device max.
+pub const ERR_BAD_REQUEST: u16 = 0x0302;
+/// TX rejected fpp / bit depth / channel list (observed on hardware 0x0100 replies).
+pub const ERR_PARAMS: u16 = 0x0314;
+
+/// Advertised in ARC 0x1000. Inferno chunks a TX into flows of this width.
+pub const MAX_CHANNELS_IN_FLOW: usize = 8;
+/// Inferno `MAX_PAYLOAD_BYTES`: cap fpp so PCM fits one UDP datagram.
+pub const MAX_PAYLOAD_BYTES: usize = 1400;
 
 pub type FlowHandle = [u8; 6];
 

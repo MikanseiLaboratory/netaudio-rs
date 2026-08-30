@@ -22,6 +22,10 @@ pub enum MediaCommand {
         bytes_per_sample: usize,
         sample_rate: u32,
     },
+    UpdateFlow {
+        id: u16,
+        map: Vec<Option<usize>>,
+    },
     RemoveFlow {
         id: u16,
     },
@@ -102,6 +106,11 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                         saw_packet: false,
                     },
                 );
+            }
+            Ok(MediaCommand::UpdateFlow { id, map }) => {
+                if let Some(flow) = flows.get_mut(&id) {
+                    flow.map = map;
+                }
             }
             Ok(MediaCommand::RemoveFlow { id }) => {
                 flows.remove(&id);

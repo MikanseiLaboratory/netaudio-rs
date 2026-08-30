@@ -149,7 +149,9 @@ impl Message {
         for _ in 0..na {
             let (r, p) = read_record(msg, pos)?;
             pos = p;
-            answers.push(r);
+            if let Some(r) = r {
+                answers.push(r);
+            }
         }
         for _ in 0..nn {
             let (_, p) = read_record(msg, pos)?;
@@ -159,7 +161,9 @@ impl Message {
         for _ in 0..nad {
             let (r, p) = read_record(msg, pos)?;
             pos = p;
-            additionals.push(r);
+            if let Some(r) = r {
+                additionals.push(r);
+            }
         }
         Some(Message {
             id,
@@ -210,7 +214,7 @@ fn write_record(buf: &mut Vec<u8>, r: &Record) {
     buf[rdata_len_at..rdata_len_at + 2].copy_from_slice(&len.to_be_bytes());
 }
 
-fn read_record(msg: &[u8], pos: usize) -> Option<(Record, usize)> {
+fn read_record(msg: &[u8], pos: usize) -> Option<(Option<Record>, usize)> {
     let (name, mut pos) = read_name(msg, pos)?;
     let rtype = u16::from_be_bytes(msg.get(pos..pos + 2)?.try_into().ok()?);
     pos += 2;
@@ -221,14 +225,12 @@ fn read_record(msg: &[u8], pos: usize) -> Option<(Record, usize)> {
     let rdlen = u16::from_be_bytes(msg.get(pos..pos + 2)?.try_into().ok()?) as usize;
     pos += 2;
     let rdata = msg.get(pos..pos + rdlen)?;
+    let next = pos + rdlen;
     let data = match rtype {
-        QTYPE_A if rdata.len() == 4 => {
-            RecordData::A(Ipv4Addr::new(rdata[0], rdata[1], rdata[2], rdata[3]))
-        }
-        QTYPE_PTR => {
-            let (n, _) = read_name(msg, pos)?;
-            RecordData::Ptr(n)
-        }
+        QTYPE_A if rdata.len() == 4 => Some(RecordData::A(Ipv4Addr::new(
+            rdata[0], rdata[1], rdata[2], rdata[3],
+        ))),
+        QTYPE_PTR => read_name(msg, pos).map(|(n, _)| RecordData::Ptr(n)),
         QTYPE_TXT => {
             let mut strs = Vec::new();
             let mut i = 0;
@@ -241,31 +243,30 @@ fn read_record(msg: &[u8], pos: usize) -> Option<(Record, usize)> {
                 strs.push(rdata[i..i + n].to_vec());
                 i += n;
             }
-            RecordData::Txt(strs)
+            Some(RecordData::Txt(strs))
         }
         QTYPE_SRV if rdata.len() >= 6 => {
             let priority = u16::from_be_bytes(rdata[0..2].try_into().ok()?);
             let weight = u16::from_be_bytes(rdata[2..4].try_into().ok()?);
             let port = u16::from_be_bytes(rdata[4..6].try_into().ok()?);
-            let (target, _) = read_name(msg, pos + 6)?;
-            RecordData::Srv {
+            read_name(msg, pos + 6).map(|(target, _)| RecordData::Srv {
                 priority,
                 weight,
                 port,
                 target,
-            }
+            })
         }
-        _ => return None,
+        _ => None,
     };
     Some((
-        Record {
+        data.map(|data| Record {
             name,
             rtype,
             class,
             ttl,
             data,
-        },
-        pos + rdlen,
+        }),
+        next,
     ))
 }
 
@@ -429,22 +430,105 @@ pub fn chan_instance(tx_channel: &str, tx_hostname: &str) -> String {
     format!("{tx_channel}@{tx_hostname}.{CHAN_SERVICE}")
 }
 
-pub fn parse_fpp(v: &str) -> (u16, u16) {
-    let mut parts = v.split(',');
-    let max = parts
-        .next()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(16);
-    let min = parts
-        .next()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(2);
-    (max, min)
+pub fn parse_tx_id(name: &str) -> u16 {
+    let t = name.trim();
+    if let Some(n) = parse_txt_u32(t) {
+        return n as u16;
+    }
+    let digits: String = t.chars().rev().take_while(|c| c.is_ascii_digit()).collect();
+    if !digits.is_empty() {
+        let s: String = digits.chars().rev().collect();
+        if let Ok(n) = s.parse() {
+            return n;
+        }
+    }
+    1
+}
+
+/// Instance names to query: DC may send `TX 1` while mDNS is `01`.
+pub fn chan_name_variants(tx_channel: &str, tx_hostname: &str) -> Vec<String> {
+    let mut out = vec![chan_instance(tx_channel, tx_hostname)];
+    let id = parse_tx_id(tx_channel);
+    for label in [id.to_string(), format!("{id:02}")] {
+        let n = chan_instance(&label, tx_hostname);
+        if !out.iter().any(|e| names_match(e, &n)) {
+            out.push(n);
+        }
+    }
+    out
+}
+
+pub fn parse_txt_u32(v: &str) -> Option<u32> {
+    let v = v.trim();
+    if let Some(hex) = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        v.parse().ok()
+    }
+}
+
+pub fn parse_fpp(v: &str) -> Option<(u16, u16)> {
+    let (a, b) = v.split_once(',')?;
+    let max = parse_txt_u32(a).and_then(|n| u16::try_from(n).ok())?;
+    let min = parse_txt_u32(b).and_then(|n| u16::try_from(n).ok())?;
+    Some((max, min))
+}
+
+/// Wire bit depth from `_netaudio-chan` `enc` / `en`.
+/// Some devices store 16/24/32, others store bytes-per-sample 2/3/4.
+pub fn parse_wire_bits(v: &str) -> Option<u32> {
+    let n: u32 = if let Some(hex) = v.strip_prefix("0x").or_else(|| v.strip_prefix("0X")) {
+        u32::from_str_radix(hex, 16).ok()?
+    } else {
+        v.trim().parse().ok()?
+    };
+    match n {
+        16 | 24 | 32 => Some(n),
+        2..=4 => Some(n * 8),
+        _ => None,
+    }
 }
 
 pub fn names_match(a: &str, b: &str) -> bool {
     a.trim_end_matches('.')
         .eq_ignore_ascii_case(b.trim_end_matches('.'))
+}
+
+/// mDNS query. RFC 6762 answers ANY poorly; Inferno asks SRV+TXT (and A).
+pub fn build_query(questions: &[(&str, u16)]) -> Message {
+    Message {
+        id: 0,
+        flags: FLAGS_QUERY,
+        questions: questions
+            .iter()
+            .map(|(name, qtype)| Question {
+                name: (*name).to_owned(),
+                qtype: *qtype,
+            })
+            .collect(),
+        answers: Vec::new(),
+        additionals: Vec::new(),
+    }
+}
+
+pub fn records_mention(msg: &Message, name: &str) -> bool {
+    msg.answers
+        .iter()
+        .chain(msg.additionals.iter())
+        .any(|r| names_match(&r.name, name))
+}
+
+pub fn merge_records(dst: &mut Message, src: &Message) {
+    for r in src.answers.iter().chain(src.additionals.iter()) {
+        let exists = dst
+            .answers
+            .iter()
+            .chain(dst.additionals.iter())
+            .any(|e| names_match(&e.name, &r.name) && e.rtype == r.rtype);
+        if !exists {
+            dst.additionals.push(r.clone());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -476,5 +560,109 @@ mod tests {
         } else {
             panic!("expected txt");
         }
+    }
+
+    #[test]
+    fn query_roundtrip_srv_txt() {
+        let q = build_query(&[
+            ("01@desk._netaudio-chan._udp.local", QTYPE_SRV),
+            ("01@desk._netaudio-chan._udp.local", QTYPE_TXT),
+            ("desk.local", QTYPE_A),
+        ]);
+        let bytes = q.encode();
+        let back = Message::decode(&bytes).unwrap();
+        assert_eq!(back.questions.len(), 3);
+        assert_eq!(back.questions[0].qtype, QTYPE_SRV);
+        assert_eq!(back.questions[1].qtype, QTYPE_TXT);
+        assert_eq!(back.questions[2].qtype, QTYPE_A);
+    }
+
+    #[test]
+    fn records_mention_ignores_unrelated() {
+        let mut m = Message {
+            flags: FLAGS_RESPONSE,
+            ..Default::default()
+        };
+        m.answers.push(Record {
+            name: "other.local".into(),
+            rtype: QTYPE_A,
+            class: CLASS_IN,
+            ttl: 1,
+            data: RecordData::A(Ipv4Addr::new(1, 2, 3, 4)),
+        });
+        assert!(!records_mention(&m, "01@desk._netaudio-chan._udp.local"));
+        m.additionals.push(Record {
+            name: "01@desk._netaudio-chan._udp.local".into(),
+            rtype: QTYPE_SRV,
+            class: CLASS_IN,
+            ttl: 1,
+            data: RecordData::Srv {
+                priority: 0,
+                weight: 0,
+                port: 4455,
+                target: "desk.local".into(),
+            },
+        });
+        assert!(records_mention(&m, "01@desk._netaudio-chan._udp.local"));
+    }
+
+    #[test]
+    fn parse_wire_bits_accepts_bits_or_bytes() {
+        assert_eq!(parse_wire_bits("24"), Some(24));
+        assert_eq!(parse_wire_bits("3"), Some(24));
+        assert_eq!(parse_wire_bits("0x18"), Some(24));
+        assert_eq!(parse_wire_bits("4"), Some(32));
+        assert_eq!(parse_wire_bits("7"), None);
+    }
+
+    #[test]
+    fn parse_fpp_yamaha_style() {
+        assert_eq!(parse_fpp("4,2"), Some((4, 2)));
+        assert_eq!(parse_fpp("4"), None);
+        assert_eq!(parse_fpp("128,2"), Some((128, 2)));
+    }
+
+    #[test]
+    fn parse_tx_id_from_dante_names() {
+        assert_eq!(parse_tx_id("1"), 1);
+        assert_eq!(parse_tx_id("02"), 2);
+        assert_eq!(parse_tx_id("TX 1"), 1);
+        assert_eq!(parse_tx_id("TX 2"), 2);
+        assert_eq!(parse_tx_id("Left"), 1);
+    }
+
+    #[test]
+    fn decode_skips_unknown_nsec() {
+        let mut m = Message {
+            flags: FLAGS_RESPONSE,
+            ..Default::default()
+        };
+        m.answers.push(Record {
+            name: "desk.local".into(),
+            rtype: QTYPE_A,
+            class: CLASS_IN,
+            ttl: 1,
+            data: RecordData::A(Ipv4Addr::new(192, 168, 3, 3)),
+        });
+        m.answers.push(Record {
+            name: "01@desk._netaudio-chan._udp.local".into(),
+            rtype: QTYPE_TXT,
+            class: CLASS_IN,
+            ttl: 1,
+            data: RecordData::Txt(vec![b"id=1".to_vec(), b"nchan=2".to_vec()]),
+        });
+        let mut bytes = m.encode();
+        let an = u16::from_be_bytes(bytes[6..8].try_into().unwrap());
+        bytes[6..8].copy_from_slice(&(an + 1).to_be_bytes());
+        bytes.extend_from_slice(&[
+            0xC0, 0x0C, 0x00, 47, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,
+        ]);
+        let d = Message::decode(&bytes).expect("NSEC must not drop the packet");
+        assert!(d.answers.iter().any(|r| matches!(r.data, RecordData::A(_))));
+        assert!(
+            d.answers
+                .iter()
+                .any(|r| matches!(r.data, RecordData::Txt(_)))
+        );
     }
 }

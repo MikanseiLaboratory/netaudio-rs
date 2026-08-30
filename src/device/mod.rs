@@ -22,7 +22,7 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 /// Ports actually bound by a running [`Device`].
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -91,6 +91,9 @@ pub(crate) struct Shared {
     pub flows_seq: AtomicU16,
     pub subscribe_override: Mutex<Option<(Ipv4Addr, u16)>>,
     pub info_tx: tokio::sync::mpsc::UnboundedSender<info_mcast::InfoEvent>,
+    pub sub_wake: Notify,
+    pub sub_pending: AtomicBool,
+    pub mdns_tx: Mutex<Option<std::sync::mpsc::Sender<crate::net::mdns::MdnsQuery>>>,
 }
 
 /// Running receive device. `Send + Sync`. One instance per [`Device::start`].
@@ -210,6 +213,9 @@ impl Device {
             flows_seq: AtomicU16::new(1),
             subscribe_override: Mutex::new(None),
             info_tx,
+            sub_wake: Notify::new(),
+            sub_pending: AtomicBool::new(false),
+            mdns_tx: Mutex::new(None),
         });
 
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -439,12 +445,18 @@ async fn run_control(
         let mut sd = shutdown.clone();
         tokio::spawn(async move { info_mcast::run(shared, info_sock, info_rx, &mut sd).await })
     };
+    let sub_task = {
+        let shared = shared.clone();
+        let sd = shutdown.clone();
+        tokio::spawn(async move { subscribe::run(shared, sd).await })
+    };
     let _ = ready.send(Ok(()));
 
     let _ = shutdown.changed().await;
     arc_task.abort();
     cmc_task.abort();
     info_task.abort();
+    sub_task.abort();
     Ok(())
 }
 
