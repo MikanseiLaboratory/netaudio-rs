@@ -137,15 +137,9 @@ fn bind_unicast_inner(
     Ok(sock.into())
 }
 
-pub fn bind_in_range(ip: Ipv4Addr, start: u16, end: u16) -> Result<StdUdp, Error> {
-    reject(ip)?;
-    for port in start..=end {
-        match bind_unicast(ip, port, "media") {
-            Ok(s) => return Ok(s),
-            Err(Error::PortInUse { .. }) => continue,
-            Err(e) => return Err(e),
-        }
-    }
+/// Inferno allocates media ports from the OS. Hardware uses 0x3800..=0x397F;
+/// Windows Hyper-V often swallows that range even when bind succeeds.
+pub fn bind_media(ip: Ipv4Addr) -> Result<StdUdp, Error> {
     bind_unicast(ip, 0, "media")
 }
 

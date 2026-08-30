@@ -12,7 +12,7 @@ use crate::protocol::flows_control::{self, FlowHandle, MAX_CHANNELS_IN_FLOW};
 use crate::protocol::mdns as mdns_proto;
 use crate::protocol::ports;
 use crate::protocol::req_resp;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -255,33 +255,28 @@ async fn prune_stale_slots(shared: &Arc<Shared>) {
 
 async fn attach_host(shared: &Arc<Shared>, tx_host: &str, chans: Vec<(usize, String)>) {
     let mut resolved: Vec<(usize, ResolvedTx)> = Vec::new();
-    for (idx, tx_ch) in &chans {
-        if !still_pending(shared, *idx, tx_ch, tx_host) {
-            continue;
-        }
-        match resolve_tx(shared, tx_host, tx_ch).await {
-            Ok(r) => {
-                if r.sample_rate != shared.settings.sample_rate {
-                    log::warn!(
-                        "subscribe rate mismatch: tx {} local {}",
-                        r.sample_rate,
-                        shared.settings.sample_rate
-                    );
-                    set_status(shared, *idx, arc::STATUS_UNRESOLVED);
-                    continue;
+    resolved.extend(resolve_batch(shared, tx_host, chans).await);
+
+    let extra: Vec<(usize, String)> = {
+        let known: BTreeSet<usize> = resolved.iter().map(|(i, _)| *i).collect();
+        let subs = shared.subs.lock().unwrap_or_else(|e| e.into_inner());
+        subs.iter()
+            .enumerate()
+            .filter_map(|(idx, s)| {
+                if known.contains(&idx) || s.flow_id.is_some() {
+                    return None;
                 }
-                if !still_pending(shared, *idx, tx_ch, tx_host) {
-                    continue;
+                if s.tx_host.as_deref() != Some(tx_host) {
+                    return None;
                 }
-                set_status(shared, *idx, arc::STATUS_ESTABLISHING);
-                resolved.push((*idx, r));
-            }
-            Err(e) => {
-                log::warn!("subscribe resolve failed: {e}");
-                set_status(shared, *idx, arc::STATUS_UNRESOLVED);
-            }
-        }
+                Some((idx, s.tx_channel.clone()?))
+            })
+            .collect()
+    };
+    if !extra.is_empty() {
+        resolved.extend(resolve_batch(shared, tx_host, extra).await);
     }
+
     if resolved.is_empty() {
         return;
     }
@@ -317,6 +312,62 @@ async fn attach_host(shared: &Arc<Shared>, tx_host: &str, chans: Vec<(usize, Str
             let piece: Vec<(usize, ResolvedTx)> = chunk[start..end].to_vec();
             start = end;
             request_new_flow(shared, piece, width).await;
+        }
+    }
+}
+
+async fn resolve_batch(
+    shared: &Arc<Shared>,
+    tx_host: &str,
+    chans: Vec<(usize, String)>,
+) -> Vec<(usize, ResolvedTx)> {
+    let mut tasks = Vec::new();
+    for (idx, tx_ch) in chans {
+        let shared = shared.clone();
+        let host = tx_host.to_string();
+        tasks.push(tokio::spawn(async move {
+            resolve_one(&shared, &host, idx, &tx_ch).await
+        }));
+    }
+    let mut out = Vec::new();
+    for task in tasks {
+        if let Ok(Some(pair)) = task.await {
+            out.push(pair);
+        }
+    }
+    out
+}
+
+async fn resolve_one(
+    shared: &Arc<Shared>,
+    tx_host: &str,
+    idx: usize,
+    tx_ch: &str,
+) -> Option<(usize, ResolvedTx)> {
+    if !still_pending(shared, idx, tx_ch, tx_host) {
+        return None;
+    }
+    match resolve_tx(shared, tx_host, tx_ch).await {
+        Ok(r) => {
+            if r.sample_rate != shared.settings.sample_rate {
+                log::warn!(
+                    "subscribe rate mismatch: tx {} local {}",
+                    r.sample_rate,
+                    shared.settings.sample_rate
+                );
+                set_status(shared, idx, arc::STATUS_UNRESOLVED);
+                return None;
+            }
+            if !still_pending(shared, idx, tx_ch, tx_host) {
+                return None;
+            }
+            set_status(shared, idx, arc::STATUS_ESTABLISHING);
+            Some((idx, r))
+        }
+        Err(e) => {
+            log::warn!("subscribe resolve failed: {e}");
+            set_status(shared, idx, arc::STATUS_UNRESOLVED);
+            None
         }
     }
 }
@@ -374,7 +425,10 @@ async fn try_fill_existing(shared: &Shared, idx: usize, resolved: &ResolvedTx) -
     let seq = shared.flows_seq.fetch_add(1, Ordering::Relaxed);
     let pkt = flows_control::encode_update(seq, u.handle, &u.tx_ids);
     log::info!("0x0102 {} ids={:?}", u.addr, u.tx_ids);
-    let _ = send_opcode(shared, u.addr, seq, flows_control::OP_UPDATE, &pkt).await;
+    match send_opcode(shared, u.addr, seq, flows_control::OP_UPDATE, &pkt).await {
+        Ok(_) => log::info!("0x0102 ok ids={:?}", u.tx_ids),
+        Err(e) => log::warn!("0x0102: {e}"),
+    }
     true
 }
 
@@ -393,11 +447,7 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
         .latency_ns
         .max(shared.settings.rx_latency.as_nanos() as u32);
 
-    let media = match udp::bind_in_range(
-        shared.identity.ip,
-        ports::MEDIA_PORT_START,
-        ports::MEDIA_PORT_END,
-    ) {
+    let media = match udp::bind_media(shared.identity.ip) {
         Ok(s) => s,
         Err(e) => {
             log::warn!("media bind: {e}");

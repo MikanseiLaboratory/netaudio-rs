@@ -5,7 +5,6 @@ use crate::clock::overlay::Source;
 use crate::device::Shared;
 use crate::protocol::media as media_proto;
 use crate::protocol::pcm;
-use crate::protocol::ports;
 use std::collections::HashMap;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
@@ -98,7 +97,6 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                     shared.ring.note_port(p.port());
                     log::info!("media bind {p} nchan={nchan} bps={bytes_per_sample} tx={tx_hint}");
                 }
-                send_keepalive_probes(&sock, *tx_hint.ip(), true);
                 flows.insert(
                     id,
                     Flow {
@@ -185,8 +183,6 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
             if now >= flow.next_keepalive {
                 if let Some(src) = flow.last_source {
                     let _ = flow.sock.send_to(&keepalive::KEEPALIVE, src);
-                } else {
-                    send_keepalive_probes(&flow.sock, *flow.tx_hint.ip(), false);
                 }
                 flow.next_keepalive = now + Duration::from_millis(keepalive::INTERVAL_MS);
             }
@@ -196,28 +192,13 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 flow.silent_until = None;
                 if let Ok(local) = flow.sock.local_addr() {
                     log::warn!(
-                        "no media UDP on {local} from {} yet; allow inbound UDP {} in Windows Firewall, and check Dante Controller shows Receiving not Pending",
-                        flow.tx_hint.ip(),
-                        local.port()
+                        "no media UDP on {local} from {} yet; allow this process inbound UDP in Windows Firewall (media port is OS-assigned), and check Dante Controller shows Receiving not Pending",
+                        flow.tx_hint.ip()
                     );
                 }
             }
         }
         shared.overlay.mark_unlocked_if_stale(1_000_000_000);
-    }
-}
-
-fn send_keepalive_probes(sock: &UdpSocket, ip: std::net::Ipv4Addr, full: bool) {
-    let end = if full {
-        ports::MEDIA_PORT_END_2
-    } else {
-        ports::MEDIA_PORT_START + 7
-    };
-    for port in ports::MEDIA_PORT_START..=end {
-        let _ = sock.send_to(
-            &keepalive::KEEPALIVE,
-            SocketAddr::V4(SocketAddrV4::new(ip, port)),
-        );
     }
 }
 

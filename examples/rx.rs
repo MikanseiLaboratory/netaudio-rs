@@ -176,7 +176,7 @@ fn print_ports(name: &str, bind: &str, ports: &BoundPorts) {
         println!("PTP     UDP {p} / {}", ports.ptp_general.unwrap_or(0));
     }
     if ports.media.is_empty() {
-        println!("media   パッチ後に 0x3800..=0x397F へ bind します");
+        println!("media   パッチ後にOSがUDPポートを割り当てます");
     } else {
         println!("media   {:?}", ports.media);
     }
