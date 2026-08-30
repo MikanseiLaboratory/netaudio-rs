@@ -97,13 +97,7 @@ sudo setcap cap_net_bind_service=+ep /path/to/your/binary
 
 制御ソケットは exclusive-address-use、mDNS は reuse、メディアソケットは未接続のまま使います（`SIO_UDP_CONNRESET` を切る）。送信側リセット後も受信を続けられます。
 
-UDP bindが拒否される（`in use or reserved` / os error 10013）ときは、Hyper-Vなどがポート範囲を予約しています。
-
-```
-netsh interface ipv4 show excludedportrange protocol=udp
-```
-
-空きへ `--alt-port`でずらします。`--alt-port 14440`なら ARC=14440、CMC=14441、info=14443です。
+`--alt-port`未指定のときは、default（4440 / 8800 / 8700）が埋まっていれば空いている4連を選びます。固定したいときだけ`--alt-port`を付けます。
 
 ## 後続
 

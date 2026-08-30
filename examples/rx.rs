@@ -67,7 +67,7 @@ struct ListenArgs {
     #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u64).range(4..=1000))]
     latency_ms: u64,
 
-    /// 制御ポートの基準。未指定時は 4440 / 8800 / 4455 / 8700。
+    /// 制御ポートの基準。未指定時は 4440 / 8800 / 4455 / 8700。埋まっていれば空いている4連を選びます。
     #[arg(long)]
     alt_port: Option<u16>,
 

@@ -158,20 +158,8 @@ impl Device {
                 ]
             }
         });
-        let (arc_port, cmc_port, flows_port, info_port) = match settings.alt_port {
-            Some(a) => (
-                a,
-                a.saturating_add(1),
-                a.saturating_add(2),
-                a.saturating_add(3),
-            ),
-            None => (
-                proto_ports::ARC,
-                proto_ports::CMC,
-                proto_ports::FLOWS_CONTROL,
-                proto_ports::INFO_BIND,
-            ),
-        };
+        let (arc_port, cmc_port, flows_port, info_port) =
+            udp::pick_control_ports(ip, settings.alt_port)?;
         let friendly = settings.name.clone();
         let hex_id = hex_id(&device_id);
         let mut factory = format!("netaudio-{hex_id}");
