@@ -55,6 +55,7 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
             let mut template: Option<Vec<u8>> = None;
             let started = Instant::now();
             let mut next_delay = Instant::now();
+            let mut last_peer_n = 0usize;
             loop {
                 if shared.stopped.load(std::sync::atomic::Ordering::Acquire) {
                     break;
@@ -79,7 +80,11 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                         log::info!("PTP from network {src}");
                     }
                     if template.is_none() && n >= ptp_v1::HEADER_LEN {
-                        template = Some(buf[..n.min(ptp_v1::DELAY_REQ_LEN)].to_vec());
+                        if let Some(h) = ptp_v1::decode_header(&buf[..n])
+                            && h.control == CONTROL_SYNC
+                        {
+                            template = Some(buf[..n.min(ptp_v1::DELAY_REQ_LEN)].to_vec());
+                        }
                     }
                     if let Some(h) = ptp_v1::decode_header(&buf[..n])
                         && h.control == CONTROL_DELAY_RESP
@@ -132,12 +137,13 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                     );
                 }
                 let now = Instant::now();
-                if now >= next_delay {
-                    let peers: Vec<Ipv4Addr> = shared
-                        .ptp_unicast
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .clone();
+                let peers: Vec<Ipv4Addr> = shared
+                    .ptp_unicast
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .clone();
+                let peers_added = peers.len() > last_peer_n;
+                if now >= next_delay || peers_added {
                     send_delay_req(
                         &event,
                         &subdomain,
@@ -148,16 +154,17 @@ pub fn start(shared: Arc<Shared>) -> Result<JoinHandle<()>, Error> {
                         None,
                         &peers,
                     );
-                    if !logged_delay {
+                    if !logged_delay || peers_added {
                         logged_delay = true;
                         log::info!("PTP Delay_Req multicast {group} unicast={peers:?}");
                     }
+                    last_peer_n = peers.len();
                     next_delay = now + Duration::from_secs(1);
                 }
                 if !saw_foreign && !warned_silence && started.elapsed() >= Duration::from_secs(3) {
                     warned_silence = true;
                     log::warn!(
-                        "no PTPv1 UDP on 319/320 from the LAN yet; DVS may not send media until this device is in the clock domain"
+                        "no PTPv1 UDP from the LAN yet; on the TX PC, disconnected NICs with a better multicast metric (e.g. Ethernet 2) can swallow 224.0.1.129 — run as Administrator: Set-NetIPInterface -InterfaceAlias \"Ethernet 2\" -InterfaceMetric 9999"
                     );
                 }
             }
@@ -182,7 +189,10 @@ fn send_delay_req(
         let _ = event.send_to(&pkt, src);
     }
     for ip in peers {
-        let _ = event.send_to(&pkt, SocketAddr::from((*ip, ports::PTP_EVENT)));
+        let dest = SocketAddr::from((*ip, ports::PTP_EVENT));
+        if let Err(e) = event.send_to(&pkt, dest) {
+            log::warn!("PTP Delay_Req {dest}: {e}");
+        }
     }
 }
 

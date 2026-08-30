@@ -7,7 +7,7 @@ use crate::protocol::media as media_proto;
 use crate::protocol::pcm;
 use crate::protocol::ports;
 use std::collections::HashMap;
-use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
@@ -107,6 +107,7 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                         log::info!("keepalive will probe {}:{}", tx_hint.ip(), port);
                     }
                 }
+                punch_dvs_tx_media(&sock, *tx_hint.ip());
                 flows.insert(
                     id,
                     Flow {
@@ -226,6 +227,14 @@ fn punch_media_path(sock: &UdpSocket, tx_hint: SocketAddrV4, tx_media_port: Opti
     );
     if let Ok(local) = sock.local_addr() {
         let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::from((ip, local.port())));
+    }
+}
+
+/// DVS software TX binds ephemeral UDP around 60880 (apec3/ptp), not 31823.
+fn punch_dvs_tx_media(sock: &UdpSocket, ip: Ipv4Addr) {
+    log::info!("keepalive probe {ip}:60880..=60920");
+    for p in 60880u16..=60920 {
+        let _ = sock.send_to(&keepalive::KEEPALIVE, SocketAddr::from((ip, p)));
     }
 }
 
