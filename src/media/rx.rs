@@ -21,6 +21,8 @@ pub enum MediaCommand {
         nchan: usize,
         bytes_per_sample: usize,
         sample_rate: u32,
+        /// Flows-control address of the TX. Keepalive goes here until media arrives.
+        tx_hint: SocketAddrV4,
     },
     UpdateFlow {
         id: u16,
@@ -39,9 +41,12 @@ struct Flow {
     nchan: usize,
     bytes_per_sample: usize,
     sample_rate: u32,
+    tx_hint: SocketAddrV4,
     last_source: Option<SocketAddr>,
     next_keepalive: Instant,
     saw_packet: bool,
+    silent_until: Option<Instant>,
+    logged_undecoded: bool,
 }
 
 pub struct MediaThread {
@@ -86,11 +91,14 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 nchan,
                 bytes_per_sample,
                 sample_rate,
+                tx_hint,
             }) => {
                 let _ = crate::net::udp::prepare_media(&sock);
                 if let Ok(p) = sock.local_addr() {
                     shared.ring.note_port(p.port());
+                    log::info!("media bind {p} nchan={nchan} bps={bytes_per_sample} tx={tx_hint}");
                 }
+                send_keepalive_probes(&sock, tx_hint);
                 flows.insert(
                     id,
                     Flow {
@@ -100,10 +108,13 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                         nchan,
                         bytes_per_sample,
                         sample_rate,
+                        tx_hint,
                         last_source: None,
                         next_keepalive: Instant::now()
                             + Duration::from_millis(keepalive::INTERVAL_MS),
                         saw_packet: false,
+                        silent_until: Some(Instant::now() + Duration::from_secs(2)),
+                        logged_undecoded: false,
                     },
                 );
             }
@@ -128,12 +139,20 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
                 match flow.sock.recv_from(&mut buf) {
                     Ok((n, src)) => {
                         flow.last_source = Some(src);
+                        flow.silent_until = None;
                         if n == 2 && buf[0] == 0x13 && buf[1] == 0x37 {
                             continue;
                         }
                         let Some((hdr, pcm_bytes)) = media_proto::decode(&buf[..n]) else {
+                            if !flow.logged_undecoded {
+                                flow.logged_undecoded = true;
+                                log::warn!("media undecodable {n} bytes from {src}");
+                            }
                             continue;
                         };
+                        if !flow.saw_packet {
+                            log::info!("media first packet {n} bytes from {src}");
+                        }
                         let t1 = hdr.t1_ns(flow.sample_rate);
                         shared
                             .overlay
@@ -166,14 +185,33 @@ fn run(shared: Arc<Shared>, rx: Receiver<MediaCommand>) {
             if now >= flow.next_keepalive {
                 if let Some(src) = flow.last_source {
                     let _ = flow.sock.send_to(&keepalive::KEEPALIVE, src);
+                } else {
+                    send_keepalive_probes(&flow.sock, flow.tx_hint);
                 }
                 flow.next_keepalive = now + Duration::from_millis(keepalive::INTERVAL_MS);
             }
+            if let Some(until) = flow.silent_until
+                && now >= until
+            {
+                flow.silent_until = None;
+                if let Ok(local) = flow.sock.local_addr() {
+                    log::warn!(
+                        "no media UDP on {local} from {} yet; Windows may drop inbound UDP until this process is allowed through the firewall",
+                        flow.tx_hint.ip()
+                    );
+                }
+            }
         }
         shared.overlay.mark_unlocked_if_stale(1_000_000_000);
-        let _ = (
-            ports::MEDIA_PORT_START,
-            SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 0),
+    }
+}
+
+fn send_keepalive_probes(sock: &UdpSocket, tx_hint: SocketAddrV4) {
+    let ip = *tx_hint.ip();
+    for port in ports::MEDIA_PORT_START..=ports::MEDIA_PORT_START + 7 {
+        let _ = sock.send_to(
+            &keepalive::KEEPALIVE,
+            SocketAddr::V4(SocketAddrV4::new(ip, port)),
         );
     }
 }

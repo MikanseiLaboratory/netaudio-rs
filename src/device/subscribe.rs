@@ -538,6 +538,7 @@ async fn request_new_flow(shared: &Arc<Shared>, piece: Vec<(usize, ResolvedTx)>,
             nchan,
             bytes_per_sample: bytes,
             sample_rate: shared.settings.sample_rate,
+            tx_hint: first_addr,
         })
         .is_err()
     {
